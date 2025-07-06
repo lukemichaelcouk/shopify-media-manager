@@ -2,7 +2,49 @@
 
 This document tracks major milestones and functionality checkpoints for the SPREE Media Manager project.
 
-## v1.3.0-milestone (Current - Enhanced Image Display and UI Improvements)
+## v1.4.0-milestone (Current - Image Selection and ZIP Download Functionality)
+**Tag**: `v1.4.0-milestone`  
+**Branch**: `milestone-v1.4.0`  
+**Date**: July 6, 2025
+
+### ✅ New Features
+- **Image Selection System**
+  - Added selection checkboxes to each image in the list view
+  - Real-time selection count display ("X selected")
+  - Select All / Select None quick action buttons
+  - Visual feedback for selected images with SPREE purple highlighting
+  - Smart button state management (disabled when no selection)
+
+- **ZIP Download Functionality**
+  - Download All Images as ZIP feature for complete image backup
+  - Download Selected Images as ZIP for targeted downloads
+  - Client-side ZIP file creation using JSZip library
+  - Batch processing to prevent browser overload
+  - Progress feedback with loading indicators and status updates
+  - Automatic file naming with descriptive names (e.g., "selected-images-5.zip")
+
+- **Enhanced Download Controls**
+  - Dedicated download controls section that appears when images are loaded
+  - Smart button states based on selection (Download Selected disabled when none selected)
+  - Error handling with user-friendly notifications
+  - Success/failure feedback for download operations
+  - Memory-efficient processing with proper cleanup
+
+### 🔧 Technical Improvements
+- Integrated JSZip library for client-side ZIP creation
+- Efficient batched image fetching to avoid overwhelming browser
+- Proper error handling and resilience for failed image downloads
+- Enhanced UI state management for download operations
+- Added comprehensive CSS styling for selection indicators
+- Improved accessibility with proper checkbox labeling
+
+### 📁 Modified Files
+- `index.html` - Added selection checkboxes, download functions, and UI controls
+- `styles.css` - Added styling for checkboxes and selected state indicators
+
+---
+
+## v1.3.0-milestone (Enhanced Image Display and UI Improvements)
 **Tag**: `v1.3.0-milestone`  
 **Branch**: `milestone-v1.3.0`  
 **Date**: July 6, 2025
