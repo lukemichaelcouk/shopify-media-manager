@@ -2,7 +2,38 @@
 
 This document tracks major milestones and functionality checkpoints for the SPREE Media Manager project.
 
-## v1.0.0-milestone (Current Stable Base)
+## v1.1.0-milestone (Current - File Type Filtering Improvements)
+**Tag**: `v1.1.0-milestone`  
+**Branch**: `milestone-v1.1.0`  
+**Date**: July 6, 2025
+
+### ✅ New Features
+- **Enhanced File Type Detection**
+  - Added `getFileExtension()` utility function for consistent URL parsing
+  - Fixed file type detection to properly strip query strings (`?param=value`)
+  - Fixed file type detection to properly strip fragment identifiers (`#anchor`)
+  - Updated file type filter buttons to work correctly with parameterized URLs
+  - Improved download filename generation to exclude URL parameters
+
+- **Improved File Categorization**
+  - File type filters now accurately count and display file types
+  - URLs like `image.jpg?v=123456` are correctly identified as `JPG` type
+  - Dynamic file type buttons show accurate counts regardless of URL format
+  - ZIP downloads generate clean filenames without query parameters
+
+### 🔧 Technical Improvements
+- Centralized file extension logic in utility functions
+- Consistent file type detection across frontend and backend
+- Better error handling for malformed URLs
+- Future-proof architecture for file type detection
+
+### 📁 Modified Files
+- `index.html` - Updated file type detection in multiple functions
+- `app.js` - Added utility function and updated download logic
+
+---
+
+## v1.0.0-milestone (Stable Base)
 **Tag**: `v1.0.0-milestone`  
 **Branch**: `main`  
 **Date**: July 6, 2025
