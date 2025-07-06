@@ -327,6 +327,11 @@
             }
         };
 
+        // Utility function to extract file extension from URL, stripping query strings and fragments
+        function getFileExtension(url) {
+            return url.split('.').pop().split('?')[0].split('#')[0].toLowerCase();
+        }
+
         // Check for URL parameters on page load
         document.addEventListener('DOMContentLoaded', function() {
             const urlParams = new URLSearchParams(window.location.search);
@@ -754,7 +759,7 @@
                         resolve({
                             width: this.naturalWidth,
                             height: this.naturalHeight,
-                            type: url.split('.').pop().toLowerCase()
+                            type: getFileExtension(url)
                         });
                     };
                     img.onerror = function() {
@@ -1230,7 +1235,7 @@
             filterContainer.innerHTML = '';
 
             const fileTypeCounts = images.reduce((counts, image) => {
-                const fileType = image.url.split('.').pop().toLowerCase();
+                const fileType = getFileExtension(image.url);
                 counts[fileType] = (counts[fileType] || 0) + 1;
                 return counts;
             }, {});
@@ -1240,7 +1245,10 @@
                 filterButton.className = 'filter-button';
                 filterButton.textContent = `${fileType.toUpperCase()} (${count})`;
                 filterButton.onclick = () => {
-                    const filteredImages = images.filter(image => image.url.endsWith(`.${fileType}`));
+                    const filteredImages = images.filter(image => {
+                        const imageFileType = getFileExtension(image.url);
+                        return imageFileType === fileType;
+                    });
                     displayImages(filteredImages, `Images (${fileType.toUpperCase()})`);
                 };
                 filterContainer.appendChild(filterButton);
@@ -1255,7 +1263,7 @@
 
         function updateFilterCounts(images) {
             const fileTypeCounts = images.reduce((counts, image) => {
-                const fileType = image.url.split('.').pop().toLowerCase();
+                const fileType = getFileExtension(image.url);
                 counts[fileType] = (counts[fileType] || 0) + 1;
                 return counts;
             }, {});

@@ -1,3 +1,8 @@
+// Utility function to extract file extension from URL, stripping query strings and fragments
+function getFileExtension(url) {
+    return url.split('.').pop().split('?')[0].split('#')[0].toLowerCase();
+}
+
 // Shopify Media Manager App
 class ShopifyMediaManager {
     constructor() {
@@ -536,7 +541,7 @@ class ShopifyMediaManager {
                 const resp = await fetch(url);
                 if (!resp.ok) throw new Error('Failed to fetch');
                 const blob = await resp.blob();
-                const ext = url.split('.').pop().split('?')[0];
+                const ext = getFileExtension(url);
                 const safeName = (file.key || file.name || 'file') + '.' + ext;
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(blob);
@@ -569,7 +574,7 @@ class ShopifyMediaManager {
                     const resp = await fetch(url);
                     if (!resp.ok) throw new Error('Failed to fetch');
                     const blob = await resp.blob();
-                    const ext = url.split('.').pop().split('?')[0];
+                    const ext = getFileExtension(url);
                     const safeName = (file.key || file.name || 'file_' + count) + '.' + ext;
                     zip.file(safeName, blob);
                     count++;
