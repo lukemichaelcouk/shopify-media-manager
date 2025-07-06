@@ -1213,9 +1213,20 @@
             const list = document.createElement('ul');
             list.className = 'image-list';
 
-            images.forEach(image => {
+            images.forEach((image, index) => {
                 const listItem = document.createElement('li');
                 listItem.className = 'image-list-item';
+                listItem.setAttribute('data-image-index', index);
+
+                // Selection checkbox
+                const checkboxContainer = document.createElement('div');
+                checkboxContainer.className = 'image-checkbox-container';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'image-checkbox';
+                checkbox.id = `image-checkbox-${index}`;
+                checkbox.addEventListener('change', () => updateSelectionCount());
+                checkboxContainer.appendChild(checkbox);
 
                 // Image thumbnail
                 const thumbnail = document.createElement('img');
@@ -1264,12 +1275,19 @@
                 openButton.innerHTML = '<i class="fas fa-external-link-alt"></i> Open Image';
                 details.appendChild(openButton);
 
+                listItem.appendChild(checkboxContainer);
                 listItem.appendChild(thumbnail);
                 listItem.appendChild(details);
                 list.appendChild(listItem);
             });
 
             gallery.appendChild(list);
+            
+            // Show download controls when images are displayed
+            if (images.length > 0) {
+                document.getElementById('download-controls').classList.remove('hidden');
+                updateSelectionCount();
+            }
         }
 
         function createFileTypeFilters(images) {
@@ -1393,19 +1411,187 @@
             console.log(`Filtered to ${filteredImages.length} images for category: ${category}`);
         }
 
-        function updateSelectionCount(images) {
+        function updateSelectionCount() {
+            const checkboxes = document.querySelectorAll('.image-checkbox');
+            const selectedCheckboxes = document.querySelectorAll('.image-checkbox:checked');
+            const selectedCount = selectedCheckboxes.length;
+            
             // Update the selection count display
             const selectionCount = document.getElementById('selection-count');
             if (selectionCount) {
-                const selectedCount = 0; // Since we don't have selection functionality in list view yet
                 selectionCount.textContent = `${selectedCount} selected`;
             }
             
             // Update download buttons state
             const downloadSelectedBtn = document.getElementById('download-selected-btn');
             if (downloadSelectedBtn) {
-                downloadSelectedBtn.disabled = true; // Disabled since no selection in list view
+                downloadSelectedBtn.disabled = selectedCount === 0;
             }
+        }
+
+        // Selection control functions
+        function selectAllImages() {
+            const checkboxes = document.querySelectorAll('.image-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = true;
+            });
+            updateSelectionCount();
+        }
+
+        function selectNoneImages() {
+            const checkboxes = document.querySelectorAll('.image-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+            });
+            updateSelectionCount();
+        }
+
+        // Download functions
+        async function downloadAllImages() {
+            if (!imageSession.load() || !imageSession.isValid(window.shopifyApp.shop)) {
+                showNotification('No images loaded. Please fetch images first.', 'error');
+                return;
+            }
+
+            const images = imageSession.images;
+            await downloadImagesAsZip(images, 'all-images.zip');
+        }
+
+        async function downloadSelectedImages() {
+            if (!imageSession.load() || !imageSession.isValid(window.shopifyApp.shop)) {
+                showNotification('No images loaded. Please fetch images first.', 'error');
+                return;
+            }
+
+            const selectedCheckboxes = document.querySelectorAll('.image-checkbox:checked');
+            if (selectedCheckboxes.length === 0) {
+                showNotification('No images selected. Please select images to download.', 'warning');
+                return;
+            }
+
+            const selectedImages = [];
+            selectedCheckboxes.forEach(checkbox => {
+                const listItem = checkbox.closest('.image-list-item');
+                const imageIndex = parseInt(listItem.getAttribute('data-image-index'));
+                selectedImages.push(imageSession.images[imageIndex]);
+            });
+
+            await downloadImagesAsZip(selectedImages, `selected-images-${selectedImages.length}.zip`);
+        }
+
+        // Generic function to download images as ZIP
+        async function downloadImagesAsZip(images, filename) {
+            // Check if JSZip is available
+            if (typeof JSZip === 'undefined') {
+                // Dynamically load JSZip if not available
+                try {
+                    await loadJSZip();
+                } catch (error) {
+                    showNotification('Failed to load ZIP library. Please try again.', 'error');
+                    return;
+                }
+            }
+
+            showNotification(`Preparing ${images.length} images for download...`, 'info');
+            
+            // Disable download buttons during operation
+            const downloadAllBtn = document.getElementById('download-all-btn');
+            const downloadSelectedBtn = document.getElementById('download-selected-btn');
+            const originalAllText = downloadAllBtn.innerHTML;
+            const originalSelectedText = downloadSelectedBtn.innerHTML;
+            
+            downloadAllBtn.disabled = true;
+            downloadSelectedBtn.disabled = true;
+            downloadAllBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Preparing...';
+            
+            try {
+                const zip = new JSZip();
+                let successCount = 0;
+                let errorCount = 0;
+
+                // Process images in batches
+                const batchSize = 3;
+                for (let i = 0; i < images.length; i += batchSize) {
+                    const batch = images.slice(i, i + batchSize);
+                    
+                    await Promise.all(batch.map(async (image, batchIndex) => {
+                        const globalIndex = i + batchIndex;
+                        try {
+                            // Update progress
+                            downloadAllBtn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Processing ${globalIndex + 1}/${images.length}`;
+                            
+                            const response = await fetch(image.url);
+                            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                            
+                            const blob = await response.blob();
+                            const extension = getFileExtension(image.url);
+                            const sanitizedUrl = image.url.replace(/[^a-zA-Z0-9.-]/g, '_');
+                            const fileName = `image_${globalIndex + 1}_${sanitizedUrl.substring(sanitizedUrl.lastIndexOf('/') + 1, sanitizedUrl.lastIndexOf('/') + 20)}.${extension}`;
+                            
+                            zip.file(fileName, blob);
+                            successCount++;
+                        } catch (error) {
+                            console.warn(`Failed to download image ${globalIndex + 1}:`, error);
+                            errorCount++;
+                        }
+                    }));
+                    
+                    // Small delay between batches
+                    if (i + batchSize < images.length) {
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                }
+
+                if (successCount === 0) {
+                    throw new Error('No images could be downloaded');
+                }
+
+                // Generate and download ZIP
+                downloadAllBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating ZIP...';
+                const zipBlob = await zip.generateAsync({ type: 'blob' });
+                
+                // Create download link
+                const url = URL.createObjectURL(zipBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                if (errorCount > 0) {
+                    showNotification(`Download complete! ${successCount} images downloaded, ${errorCount} failed.`, 'warning');
+                } else {
+                    showNotification(`Successfully downloaded ${successCount} images as ${filename}`, 'success');
+                }
+
+            } catch (error) {
+                console.error('Download failed:', error);
+                showNotification(`Download failed: ${error.message}`, 'error');
+            } finally {
+                // Re-enable buttons
+                downloadAllBtn.disabled = false;
+                downloadSelectedBtn.disabled = document.querySelectorAll('.image-checkbox:checked').length === 0;
+                downloadAllBtn.innerHTML = originalAllText;
+                downloadSelectedBtn.innerHTML = originalSelectedText;
+            }
+        }
+
+        // Function to load JSZip dynamically
+        function loadJSZip() {
+            return new Promise((resolve, reject) => {
+                if (typeof JSZip !== 'undefined') {
+                    resolve();
+                    return;
+                }
+                
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+                script.onload = () => resolve();
+                script.onerror = () => reject(new Error('Failed to load JSZip'));
+                document.head.appendChild(script);
+            });
         }
     </script>
     

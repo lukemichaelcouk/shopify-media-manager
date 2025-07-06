@@ -1174,6 +1174,33 @@ body {
     color: white;
 }
 
+/* Image selection styles */
+.image-checkbox-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.image-checkbox {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--spree-purple);
+    cursor: pointer;
+    transform: scale(1.2);
+}
+
+.image-checkbox:checked {
+    background: var(--spree-purple);
+    border-color: var(--spree-purple);
+}
+
+.image-list-item:has(.image-checkbox:checked) {
+    background: linear-gradient(135deg, rgba(49, 42, 114, 0.05) 0%, rgba(49, 42, 114, 0.02) 100%);
+    border-color: var(--spree-purple);
+    box-shadow: 0 4px 12px rgba(49, 42, 114, 0.15);
+}
+
 .image-caption {
     font-weight: 500;
     color: var(--spree-text-primary);
