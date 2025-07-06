@@ -64,32 +64,36 @@ This document tracks major milestones and functionality checkpoints for the SPRE
 6. **Optimization Insights**: Detailed savings calculations and recommendations
 7. **Mobile Responsive**: Works on all device sizes
 
-## Development Branch Strategy
+## Development Workflow Strategy
 
-### Current Development
-**Branch**: `development`  
-Use this branch for ongoing feature development and improvements.
+### Live Development on Main
+**Branch**: `main` (for immediate live deployment)  
+Work directly on main branch for real-time changes to the live site.
 
-### Creating New Milestones
-When significant functionality is complete or before major changes:
+### Creating Milestone Branches
+Before major changes or when significant functionality is complete:
 
 ```bash
-# Create a new milestone tag
+# Create a milestone branch from current main state
+git checkout -b milestone-v1.1.0
+git push -u origin milestone-v1.1.0
+
+# Return to main for continued development
+git checkout main
+
+# Optional: Create a tag as well
 git tag -a v1.1.0-milestone -m "Description of milestone"
-
-# Push the tag
 git push origin v1.1.0-milestone
-
-# Update this file with new milestone details
 ```
 
 ### Recovering Lost Functionality
-If functionality is lost during development:
+If functionality is lost during development on main:
 
-1. **Check current milestone**: Review this file for the last known working state
-2. **Compare branches**: `git diff main development` to see what changed
-3. **Cherry-pick fixes**: `git cherry-pick <commit-hash>` for specific fixes
-4. **Reset to milestone**: `git reset --hard v1.0.0-milestone` as last resort
+1. **Check milestone branches**: Review this file for the last known working state
+2. **Compare with milestone**: `git diff milestone-v1.0.0` to see what changed
+3. **Cherry-pick fixes**: `git cherry-pick <commit-hash>` from milestone branch
+4. **Reset to milestone**: `git reset --hard milestone-v1.0.0` as last resort
+5. **Restore specific files**: `git checkout milestone-v1.0.0 -- filename.js`
 
 ### Useful Git Commands
 ```bash
