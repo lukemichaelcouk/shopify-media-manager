@@ -2,7 +2,45 @@
 
 This document tracks major milestones and functionality checkpoints for the SPREE Media Manager project.
 
-## v1.1.0-milestone (Current - File Type Filtering Improvements)
+## v1.2.0-milestone (Current - Advanced Filtering and UI Improvements)
+**Tag**: `v1.2.0-milestone`  
+**Branch**: `milestone-v1.2.0`  
+**Date**: July 6, 2025
+
+### ✅ New Features
+- **Advanced Image Filtering System**
+  - Added "Oversized Images" filter button with warning icon
+  - Implemented `filterImages()` function for dynamic image filtering
+  - Added proper filter button activation states and visual feedback
+  - Filter buttons now actually filter displayed images (not just visual states)
+  - Dynamic filter counts update correctly for all categories
+
+- **Oversized Images Detection**
+  - Special filter for images marked as oversized or large
+  - Dedicated styling for oversized filter button (danger/warning colors)
+  - Integration with existing image analysis system
+  - Visual identification of performance-impacting images
+
+- **Enhanced User Experience**
+  - Connect button properly hidden when store is already connected
+  - Improved filter button styling and interaction feedback
+  - Better visual hierarchy for filter controls
+  - Responsive filter layout with proper spacing
+
+### 🔧 Technical Improvements
+- Centralized image filtering logic in `filterImages()` function
+- Proper state management for filter button activation
+- Enhanced CSS styling system for filter categories
+- Improved session management for filtered views
+
+### 📁 Modified Files
+- `index.html` - Added oversized filter button, implemented filterImages function
+- `styles.css` - Added special styling for oversized filter button
+- Connection logic already properly implemented in app.js
+
+---
+
+## v1.1.0-milestone (File Type Filtering Improvements)
 **Tag**: `v1.1.0-milestone`  
 **Branch**: `milestone-v1.1.0`  
 **Date**: July 6, 2025
