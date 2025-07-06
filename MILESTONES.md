@@ -23,6 +23,14 @@ This document tracks major milestones and functionality checkpoints for the SPRE
   - Progress feedback with loading indicators and status updates
   - Automatic file naming with descriptive names (e.g., "selected-images-5.zip")
 
+- **CSV Export and Import Mapping**
+  - Every ZIP download includes a comprehensive `image_mapping.csv` file
+  - CSV contains complete metadata for future import/remap functionality
+  - Includes: original URLs, filenames, dimensions, file sizes, categories, optimization status
+  - Tracks oversized images and optimization recommendations for prioritization
+  - Ready-to-use mapping for re-importing images back to Shopify stores
+  - Includes README.txt explaining CSV structure and usage
+
 - **Enhanced Download Controls**
   - Dedicated download controls section that appears when images are loaded
   - Smart button states based on selection (Download Selected disabled when none selected)
