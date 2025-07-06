@@ -1157,6 +1157,24 @@ body {
     border-color: var(--spree-primary);
 }
 
+/* Special styling for oversized filter button */
+.filter-btn[data-filter="oversized"] {
+    border-color: var(--spree-danger);
+    color: var(--spree-danger);
+}
+
+.filter-btn[data-filter="oversized"]:hover {
+    background: var(--spree-danger);
+    color: white;
+    border-color: var(--spree-danger);
+}
+
+.filter-btn[data-filter="oversized"].active {
+    background: var(--spree-danger);
+    color: white;
+    border-color: var(--spree-danger);
+}
+
 /* SPREE Footer */
 .spree-footer {
     background: var(--spree-purple);

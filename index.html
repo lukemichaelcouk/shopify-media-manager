@@ -131,6 +131,9 @@
                     <button onclick="filterImages('collections')" class="btn btn-outline filter-btn" data-filter="collections">
                         <i class="fas fa-layer-group"></i> Collection Images (<span id="count-collections">0</span>)
                     </button>
+                    <button onclick="filterImages('oversized')" class="btn btn-outline filter-btn" data-filter="oversized">
+                        <i class="fas fa-exclamation-triangle"></i> Oversized Images (<span id="count-oversized">0</span>)
+                    </button>
                     <div id="file-type-filters" class="file-type-filters" style="display: flex; gap: 8px; flex-wrap: wrap; margin-left: 10px; padding-left: 10px; border-left: 1px solid #ddd;">
                         <!-- File type filters will be dynamically added here after analysis -->
                     </div>
@@ -1287,6 +1290,7 @@
             document.getElementById('count-theme').textContent = categoryCounts.theme || 0;
             document.getElementById('count-products').textContent = categoryCounts.products || 0;
             document.getElementById('count-collections').textContent = categoryCounts.collections || 0;
+            document.getElementById('count-oversized').textContent = largeFiles;
 
             const filterContainer = document.getElementById('file-type-filters');
             filterContainer.innerHTML = '';
@@ -1310,6 +1314,44 @@
             showAllButton.textContent = 'All';
             showAllButton.onclick = () => displayImages(images, 'All Images');
             filterContainer.appendChild(showAllButton);
+        }
+
+        // Function to filter images by category (called by filter buttons)
+        function filterImages(category) {
+            console.log('Filtering images by category:', category);
+            
+            // Get current images from session
+            if (!imageSession.load() || !imageSession.isValid(window.shopifyApp.shop)) {
+                showNotification('No images loaded. Please fetch images first.', 'error');
+                return;
+            }
+            
+            const allImages = imageSession.images;
+            let filteredImages;
+            let title;
+            
+            // Filter images based on category
+            if (category === 'all') {
+                filteredImages = allImages;
+                title = 'All Images';
+            } else if (category === 'oversized') {
+                filteredImages = allImages.filter(image => image.isLarge || image.oversized);
+                title = 'Oversized Images';
+            } else {
+                filteredImages = allImages.filter(image => image.category === category);
+                title = `${category.charAt(0).toUpperCase() + category.slice(1)} Images`;
+            }
+            
+            // Display filtered images
+            displayImages(filteredImages, title);
+            
+            // Update active filter button styling
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`[data-filter="${category}"]`).classList.add('active');
+            
+            console.log(`Filtered to ${filteredImages.length} images for category: ${category}`);
         }
 
         function updateSelectionCount(images) {
