@@ -2,7 +2,46 @@
 
 This document tracks major milestones and functionality checkpoints for the SPREE Media Manager project.
 
-## v1.2.0-milestone (Current - Advanced Filtering and UI Improvements)
+## v1.3.0-milestone (Current - Enhanced Image Display and UI Improvements)
+**Tag**: `v1.3.0-milestone`  
+**Branch**: `milestone-v1.3.0`  
+**Date**: July 6, 2025
+
+### ✅ New Features
+- **Enhanced Image List Display**
+  - Replaced simple image names with detailed information cards
+  - Shows file size, dimensions, oversized status, and URL for each image
+  - Added "Open Image" button to view full-size images in new tabs
+  - Improved mobile responsiveness for image detail layout
+  - Color-coded oversized status (red/green indicators)
+
+- **Connect Button Visibility Fix**
+  - Fixed issue where connect button remained visible when store was already connected
+  - Proper hiding of connect button in `showAuthenticatedApp` function
+  - Improved authentication state management and UI consistency
+  - Better visual feedback for connection status
+
+- **Improved Image Information**
+  - Displays formatted file sizes (KB, MB, GB)
+  - Shows pixel dimensions for better context
+  - Truncated URLs with hover tooltips for full URL
+  - Monospace font styling for URLs for better readability
+  - Clear oversized/optimized status indicators
+
+### 🔧 Technical Improvements
+- Enhanced `displayImages()` function with detailed image cards
+- Added comprehensive CSS styling for new image detail layout
+- Improved mobile responsive design for image lists
+- Better semantic HTML structure for accessibility
+- Consistent styling with SPREE branding guidelines
+
+### 📁 Modified Files
+- `index.html` - Updated displayImages function and showAuthenticatedApp logic
+- `styles.css` - Added extensive styling for image details and mobile responsiveness
+
+---
+
+## v1.2.0-milestone (Advanced Filtering and UI Improvements)
 **Tag**: `v1.2.0-milestone`  
 **Branch**: `milestone-v1.2.0`  
 **Date**: July 6, 2025

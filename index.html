@@ -1158,13 +1158,15 @@
             document.getElementById('store-name').textContent = shop;
             document.getElementById('store-domain').textContent = shop;
             
-            // Show connection status as connected
+            // Show connection status as connected and hide connect button
             const statusEl = document.getElementById('connection-status');
+            const connectBtn = document.getElementById('connect-btn');
+            const storeInfo = document.getElementById('store-info');
+            
             statusEl.className = 'status-connected';
             statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Connected';
-            
-            // Show store info
-            document.getElementById('store-info').classList.remove('hidden');
+            connectBtn.classList.add('hidden');
+            storeInfo.classList.remove('hidden');
             
             // Show all app sections
             document.getElementById('auth-section').classList.remove('hidden');
@@ -1215,18 +1217,55 @@
                 const listItem = document.createElement('li');
                 listItem.className = 'image-list-item';
 
+                // Image thumbnail
                 const thumbnail = document.createElement('img');
                 thumbnail.src = image.url;
-                thumbnail.alt = image.name || 'Image';
-                thumbnail.title = image.name || 'Image';
+                thumbnail.alt = 'Image thumbnail';
                 thumbnail.className = 'image-thumbnail';
+                
+                // Image details container
+                const details = document.createElement('div');
+                details.className = 'image-details';
 
-                const caption = document.createElement('span');
-                caption.className = 'image-caption';
-                caption.textContent = image.name || 'Unnamed Image';
+                // File size
+                const sizeEl = document.createElement('div');
+                sizeEl.className = 'image-detail';
+                sizeEl.innerHTML = `<strong>Size:</strong> ${image.sizeFormatted || formatFileSize(image.size || 0)}`;
+                details.appendChild(sizeEl);
+
+                // Dimensions
+                const dimensionsEl = document.createElement('div');
+                dimensionsEl.className = 'image-detail';
+                const width = image.width || 0;
+                const height = image.height || 0;
+                dimensionsEl.innerHTML = `<strong>Dimensions:</strong> ${width} × ${height}px`;
+                details.appendChild(dimensionsEl);
+
+                // Oversized status
+                const oversizedEl = document.createElement('div');
+                oversizedEl.className = 'image-detail';
+                const isOversized = image.isLarge || image.oversized;
+                oversizedEl.innerHTML = `<strong>Oversized:</strong> <span class="oversized-${isOversized ? 'yes' : 'no'}">${isOversized ? 'Yes' : 'No'}</span>`;
+                details.appendChild(oversizedEl);
+
+                // URL (truncated for display)
+                const urlEl = document.createElement('div');
+                urlEl.className = 'image-detail url-detail';
+                const truncatedUrl = image.url.length > 60 ? image.url.substring(0, 60) + '...' : image.url;
+                urlEl.innerHTML = `<strong>URL:</strong> <span class="image-url" title="${image.url}">${truncatedUrl}</span>`;
+                details.appendChild(urlEl);
+
+                // Open in new tab button
+                const openButton = document.createElement('a');
+                openButton.href = image.url;
+                openButton.target = '_blank';
+                openButton.rel = 'noopener noreferrer';
+                openButton.className = 'btn btn-outline btn-small open-image-btn';
+                openButton.innerHTML = '<i class="fas fa-external-link-alt"></i> Open Image';
+                details.appendChild(openButton);
 
                 listItem.appendChild(thumbnail);
-                listItem.appendChild(caption);
+                listItem.appendChild(details);
                 list.appendChild(listItem);
             });
 
