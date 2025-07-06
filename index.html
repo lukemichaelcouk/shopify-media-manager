@@ -1268,11 +1268,25 @@
                 return counts;
             }, {});
 
+            // Count images by category
+            const categoryCounts = images.reduce((counts, image) => {
+                const category = image.category || 'products'; // default to products if no category
+                counts[category] = (counts[category] || 0) + 1;
+                return counts;
+            }, {});
+
             const totalFiles = images.length;
             const largeFiles = images.filter(img => img.isLarge).length;
 
+            // Update stats
             document.getElementById('total-files').textContent = totalFiles;
             document.getElementById('oversized-count').textContent = largeFiles;
+
+            // Update category counts in filter buttons
+            document.getElementById('count-all').textContent = totalFiles;
+            document.getElementById('count-theme').textContent = categoryCounts.theme || 0;
+            document.getElementById('count-products').textContent = categoryCounts.products || 0;
+            document.getElementById('count-collections').textContent = categoryCounts.collections || 0;
 
             const filterContainer = document.getElementById('file-type-filters');
             filterContainer.innerHTML = '';
@@ -1282,7 +1296,10 @@
                 filterButton.className = 'filter-button';
                 filterButton.textContent = `${fileType.toUpperCase()} (${count})`;
                 filterButton.onclick = () => {
-                    const filteredImages = images.filter(image => image.url.endsWith(`.${fileType}`));
+                    const filteredImages = images.filter(image => {
+                        const imageFileType = getFileExtension(image.url);
+                        return imageFileType === fileType;
+                    });
                     displayImages(filteredImages, `Images (${fileType.toUpperCase()})`);
                 };
                 filterContainer.appendChild(filterButton);
