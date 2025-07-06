@@ -1,0 +1,19 @@
+{
+  "root": ".",
+  "clean_urls": true,
+  "https_only": true,
+  "error_page": "index.html",
+  "routes": {
+    "/api/**": {
+      "proxy": "https://your-backend-api.com/api/**"
+    }
+  },
+  "headers": {
+    "/**": {
+      "X-Frame-Options": "DENY",
+      "X-XSS-Protection": "1; mode=block",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "strict-origin-when-cross-origin"
+    }
+  }
+} 

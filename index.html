@@ -1,0 +1,1353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPREE - Shopify Media Manager</title>
+    <meta name="description" content="Professional Shopify media management tool by SPREE agency. Download, optimize, and reupload your store's media files with ease.">
+    <meta name="keywords" content="Shopify, media manager, image optimization, SPREE, agency, e-commerce">
+    <meta name="author" content="SPREE Agency">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="https://wearespree.com/img/favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="https://wearespree.com/img/favicon/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="https://wearespree.com/img/favicon/apple-touch-icon.png">
+    <meta name="theme-color" content="#312A72">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://media-manager.wearespree.com/">
+    <meta property="og:title" content="SPREE - Shopify Media Manager">
+    <meta property="og:description" content="Professional Shopify media management tool by SPREE agency. Download, optimize, and reupload your store's media files with ease.">
+    <meta property="og:image" content="https://wearespree.com/img/spree-logo.svg">
+    
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://media-manager.wearespree.com/">
+    <meta property="twitter:title" content="SPREE - Shopify Media Manager">
+    <meta property="twitter:description" content="Professional Shopify media management tool by SPREE agency. Download, optimize, and reupload your store's media files with ease.">
+    <meta property="twitter:image" content="https://wearespree.com/img/spree-logo.svg">
+    
+    <!-- Google Fonts - Lexend -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- JSZip for creating ZIP files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Shopify App Bridge -->
+    <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="spree-branding">
+                <img src="https://wearespree.com/img/spree-logo.svg" alt="SPREE Agency" class="spree-logo">
+                <div class="app-title">
+                    <h1><i class="fab fa-shopify"></i> Shopify Media Manager</h1>
+                    <p>Download, optimize, and reupload your store's media files</p>
+                    <span class="powered-by">Powered by SPREE Agency</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Installation/Loading Section -->
+        <section id="installation-section" class="section">
+            <div class="card">
+                <div id="loading-state" class="loading-state">
+                    <i class="fas fa-spinner fa-spin fa-2x"></i>
+                    <p>Setting up your Shopify Media Manager...</p>
+                </div>
+                
+                <div id="install-prompt" class="install-prompt hidden">
+                    <h2><i class="fas fa-download"></i> Install Shopify Media Manager</h2>
+                    <p>Click the button below to install and connect your Shopify store.</p>
+                    <button id="install-btn" class="btn btn-primary">
+                        <i class="fab fa-shopify"></i> Install App
+                    </button>
+                </div>
+
+                <div id="auth-error" class="auth-error hidden">
+                    <h2><i class="fas fa-exclamation-triangle"></i> Installation Required</h2>
+                    <p>Please install this app through your Shopify admin panel.</p>
+                    <button id="retry-auth" class="btn btn-secondary">
+                        <i class="fas fa-redo"></i> Retry
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Authentication Section -->
+        <section id="auth-section" class="section hidden">
+            <div class="card">
+                <h2><i class="fas fa-key"></i> Store Connection</h2>
+                <div id="connection-status" class="status-disconnected">
+                    <i class="fas fa-times-circle"></i> Not Connected
+                </div>
+                <button id="connect-btn" class="btn btn-primary">
+                    <i class="fab fa-shopify"></i> Connect to Shopify Store
+                </button>
+                <div id="store-info" class="store-info hidden">
+                    <h3>Connected Store</h3>
+                    <p><strong>Store:</strong> <span id="store-name"></span></p>
+                    <p><strong>Domain:</strong> <span id="store-domain"></span></p>
+                    <button id="disconnect-btn" class="btn btn-secondary">
+                        <i class="fas fa-sign-out-alt"></i> Disconnect
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Media Management Section -->
+        <section id="media-section" class="section hidden">
+            <div class="card">
+                <h2><i class="fas fa-images"></i> Media Management</h2>
+                
+                <!-- Fetch All Images Button -->
+                <div style="margin-bottom: 1em;">
+                    <button id="fetch-images-btn" class="btn btn-primary">Fetch All Image Assets</button>
+                    <button id="refresh-images-btn" class="btn btn-secondary" style="margin-left: 10px;">
+                        <i class="fas fa-sync"></i> Refresh Images
+                    </button>
+                    <button id="fetch-metadata-btn" class="btn btn-info hidden" style="margin-left: 10px;">
+                        <i class="fas fa-info-circle"></i> Re-analyze Images
+                    </button>
+                    <span id="images-status" style="margin-left: 1em; color: #888;"></span>
+                </div>
+                
+                <!-- Image Filters -->
+                <div id="image-filters" class="hidden" style="margin-bottom: 1em; display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button onclick="filterImages('all')" class="btn btn-outline filter-btn active" data-filter="all">
+                        <i class="fas fa-images"></i> All Images (<span id="count-all">0</span>)
+                    </button>
+                    <button onclick="filterImages('theme')" class="btn btn-outline filter-btn" data-filter="theme">
+                        <i class="fas fa-palette"></i> Theme Images (<span id="count-theme">0</span>)
+                    </button>
+                    <button onclick="filterImages('products')" class="btn btn-outline filter-btn" data-filter="products">
+                        <i class="fas fa-box"></i> Product Images (<span id="count-products">0</span>)
+                    </button>
+                    <button onclick="filterImages('collections')" class="btn btn-outline filter-btn" data-filter="collections">
+                        <i class="fas fa-layer-group"></i> Collection Images (<span id="count-collections">0</span>)
+                    </button>
+                    <div id="file-type-filters" class="file-type-filters" style="display: flex; gap: 8px; flex-wrap: wrap; margin-left: 10px; padding-left: 10px; border-left: 1px solid #ddd;">
+                        <!-- File type filters will be dynamically added here after analysis -->
+                    </div>
+                </div>
+                
+                <!-- Image Gallery -->
+                <div id="image-gallery" class="image-gallery"></div>
+                
+                <!-- Download Controls -->
+                <div id="download-controls" class="download-controls hidden">
+                    <div class="selection-controls">
+                        <button onclick="selectAllImages()" class="btn btn-outline btn-small">
+                            <i class="fas fa-check-double"></i> Select All
+                        </button>
+                        <button onclick="selectNoneImages()" class="btn btn-outline btn-small">
+                            <i class="fas fa-times"></i> Select None
+                        </button>
+                        <span id="selection-count" class="selection-status">0 selected</span>
+                    </div>
+                    <div class="download-buttons">
+                        <button id="download-all-btn" onclick="downloadAllImages()" class="btn btn-success">
+                            <i class="fas fa-file-archive"></i> Download All as ZIP
+                        </button>
+                        <button id="download-selected-btn" onclick="downloadSelectedImages()" class="btn btn-info" disabled>
+                            <i class="fas fa-file-archive"></i> Download Selected as ZIP
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Statistics Section -->
+        <section id="stats-section" class="section hidden">
+            <div class="card">
+                <h2><i class="fas fa-chart-bar"></i> Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">Total Files:</span>
+                        <span id="total-files" class="stat-value">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Total Size:</span>
+                        <span id="total-size" class="stat-value">0 MB</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Oversized Files:</span>
+                        <span id="oversized-count" class="stat-value">0</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Optimization Section -->
+        <section id="optimization-section" class="section hidden">
+            <div class="card">
+                <h2><i class="fas fa-compress-arrows-alt"></i> Optimization Savings</h2>
+                
+                <div id="optimization-loading" class="optimization-loading hidden">
+                    <div class="loading-spinner"></div>
+                    <p>Calculating potential savings...</p>
+                </div>
+                
+                <div id="optimization-results" class="optimization-results hidden">
+                    <div class="savings-summary">
+                        <div class="savings-card total-savings">
+                            <div class="savings-icon">💾</div>
+                            <div class="savings-content">
+                                <h3>Total Potential Savings</h3>
+                                <div class="savings-amount" id="total-savings-amount">0 MB</div>
+                                <div class="savings-percent" id="total-savings-percent">0%</div>
+                                <div class="savings-detail">
+                                    <span id="optimizable-count">0</span> images can be optimized
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="savings-breakdown">
+                            <div class="savings-card compression-savings">
+                                <div class="savings-icon">🗜️</div>
+                                <div class="savings-content">
+                                    <h4>Compression</h4>
+                                    <div class="savings-amount" id="compression-savings">0 MB</div>
+                                    <div class="savings-detail">Lossless optimization</div>
+                                </div>
+                            </div>
+                            
+                            <div class="savings-card resize-savings">
+                                <div class="savings-icon">📐</div>
+                                <div class="savings-content">
+                                    <h4>Resizing</h4>
+                                    <div class="savings-amount" id="resize-savings">0 MB</div>
+                                    <div class="savings-detail"><span id="resizable-count">0</span> oversized images</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="optimization-settings">
+                        <h4><i class="fas fa-cog"></i> Optimization Settings</h4>
+                        <div class="settings-grid">
+                            <div class="setting-item">
+                                <label>Max Product Image Size:</label>
+                                <span>2048 × 2048px</span>
+                            </div>
+                            <div class="setting-item">
+                                <label>Max Banner Size:</label>
+                                <span>2400 × 1200px</span>
+                            </div>
+                            <div class="setting-item">
+                                <label>Max Collection Image:</label>
+                                <span>1920 × 1080px</span>
+                            </div>
+                            <div class="setting-item">
+                                <label>Compression Quality:</label>
+                                <span>JPEG: 85%, WebP: 80%</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="optimization-actions">
+                        <button id="view-optimization-details" class="btn btn-info">
+                            <i class="fas fa-list"></i> View Detailed Breakdown
+                        </button>
+                        <button id="download-optimization-report" class="btn btn-secondary">
+                            <i class="fas fa-download"></i> Download Report
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Notifications -->
+        <div id="notifications" class="notifications"></div>
+    </div>
+
+    <script>
+        // Global app state
+        window.shopifyApp = {
+            shop: null,
+            accessToken: null,
+            bridge: null
+        };
+
+        // Session storage for images
+        const imageSession = {
+            images: [],
+            lastFetched: null,
+            shop: null,
+            
+            save: function(images, shop) {
+                this.images = images;
+                this.lastFetched = new Date().toISOString();
+                this.shop = shop;
+                sessionStorage.setItem('shopify_media_session', JSON.stringify({
+                    images: this.images,
+                    lastFetched: this.lastFetched,
+                    shop: this.shop
+                }));
+                console.log(`Saved ${images.length} images to session for shop ${shop}`);
+            },
+            
+            load: function() {
+                try {
+                    const stored = sessionStorage.getItem('shopify_media_session');
+                    if (stored) {
+                        const data = JSON.parse(stored);
+                        this.images = data.images || [];
+                        this.lastFetched = data.lastFetched;
+                        this.shop = data.shop;
+                        console.log(`Loaded ${this.images.length} images from session for shop ${this.shop}`);
+                        return true;
+                    }
+                } catch (error) {
+                    console.warn('Failed to load session data:', error);
+                }
+                return false;
+            },
+            
+            clear: function() {
+                this.images = [];
+                this.lastFetched = null;
+                this.shop = null;
+                sessionStorage.removeItem('shopify_media_session');
+                console.log('Cleared image session');
+            },
+            
+            isValid: function(shop) {
+                return this.shop === shop && this.images.length > 0 && this.lastFetched;
+            },
+            
+            getAge: function() {
+                if (!this.lastFetched) return 0;
+                return (new Date() - new Date(this.lastFetched)) / 1000; // seconds
+            }
+        };
+
+        // Check for URL parameters on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const shop = urlParams.get('shop');
+            const token = urlParams.get('token');
+            const hmac = urlParams.get('hmac');
+            const host = urlParams.get('host');
+
+            console.log('Page loaded with params:', { shop, token: token ? 'present' : 'missing', hmac: hmac ? 'present' : 'missing' });
+            console.log('Full URL:', window.location.href);
+            console.log('Search params:', window.location.search);
+
+            // Check for stored authentication first
+            const storedShop = localStorage.getItem('shopify_shop');
+            const storedToken = localStorage.getItem('shopify_token');
+
+            if (shop && token) {
+                // We have shop and token from OAuth callback - store them and initialize
+                console.log('✅ OAuth success detected - storing credentials and initializing app');
+                localStorage.setItem('shopify_shop', shop);
+                localStorage.setItem('shopify_token', token);
+                
+                // Clean up URL parameters immediately
+                const cleanUrl = window.location.protocol + '//' + window.location.host + window.location.pathname;
+                window.history.replaceState({}, document.title, cleanUrl);
+                
+                // Initialize app with the new credentials
+                validateAndInitializeApp(shop, token);
+            } else if (storedShop && storedToken) {
+                // Use stored authentication - but validate it first
+                console.log('Found stored authentication for shop:', storedShop);
+                validateAndInitializeApp(storedShop, storedToken);
+            } else if (shop && hmac) {
+                // This is an installation request from Shopify
+                console.log('Installation request detected');
+                showInstallPrompt(shop);
+            } else if (shop && !hmac && !token) {
+                // Custom app access - shop parameter but no auth
+                console.log('Custom app access detected for shop:', shop);
+                showCustomAppPrompt(shop);
+            } else {
+                // No shop parameter - show manual connection
+                console.log('No shop parameter - showing manual connection');
+                showManualConnection();
+            }
+        });
+
+        async function validateAndInitializeApp(shop, accessToken) {
+            console.log('Validating token for shop:', shop);
+            
+            try {
+                const response = await fetch('/api/validate-token', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ shop, accessToken })
+                });
+                
+                const result = await response.json();
+                
+                if (result.valid) {
+                    console.log('Token is valid, initializing authenticated app');
+                    initializeAuthenticatedApp(shop, accessToken);
+                } else {
+                    console.log('Token is invalid, clearing stored credentials');
+                    localStorage.removeItem('shopify_shop');
+                    localStorage.removeItem('shopify_token');
+                    showNotification('Your session has expired. Please reconnect.', 'warning');
+                    showManualConnection();
+                }
+            } catch (error) {
+                console.error('Token validation failed:', error);
+                showNotification('Failed to validate session. Please try reconnecting.', 'error');
+                showManualConnection();
+            }
+        }
+
+        function initializeAuthenticatedApp(shop, accessToken) {
+            console.log('🚀 initializeAuthenticatedApp called with:', { shop, token: accessToken ? 'present' : 'missing' });
+            
+            window.shopifyApp.shop = shop;
+            window.shopifyApp.accessToken = accessToken;
+            
+            console.log('✅ Credentials set in window.shopifyApp:', window.shopifyApp);
+
+            // Hide installation section
+            document.getElementById('installation-section').classList.add('hidden');
+            
+            // Initialize App Bridge (optional - app works without it)
+            try {
+                fetch('/api/config')
+                    .then(response => response.json())
+                    .then(config => {
+                        // Corrected syntax for '.then'
+                        console.log(config);
+                    })
+                    .catch(error => {
+                        // Corrected syntax for '.catch'
+                        console.error('Error:', error);
+                    });
+            } catch (error) {
+                console.log('ℹ️ App Bridge initialization skipped:', error.message);
+            }
+
+            // Show authenticated sections
+            showAuthenticatedApp(shop, accessToken);
+            
+            // Initialize media functionality
+            initializeMediaFunctionality();
+        }
+
+        // Helper function to update stats from images array
+        function updateStats(images) {
+            const totalFiles = images.length;
+            const largeFiles = images.filter(img => img.isLarge).length;
+            const totalSize = images.reduce((sum, img) => sum + (img.size || 0), 0);
+            
+            document.getElementById('total-files').textContent = totalFiles;
+            document.getElementById('total-size').textContent = formatFileSize(totalSize);
+            document.getElementById('oversized-count').textContent = largeFiles;
+        }
+        
+        // Helper function to format file size
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function initializeMediaFunctionality() {
+            // Hook up the fetch buttons
+            document.getElementById('fetch-images-btn').onclick = fetchAllImages;
+            document.getElementById('refresh-images-btn').onclick = () => fetchAllImages(true);
+            document.getElementById('fetch-metadata-btn').onclick = analyzeImages;
+            
+            // Show initial message instead of auto-fetching
+            const gallery = document.getElementById('image-gallery');
+            const status = document.getElementById('images-status');
+            
+            gallery.innerHTML = `
+                <div class="welcome-message" style="text-align: center; padding: 40px; color: #666;">
+                    <i class="fas fa-images fa-3x" style="margin-bottom: 20px; color: #007cba;"></i>
+                    <h3>Ready to fetch your store's media!</h3>
+                    <p>Click "Fetch All Image Assets" to load your images.<br>
+                    <small style="color: #888;">Analysis will start automatically after loading.</small></p>
+                </div>
+            `;
+            status.textContent = 'Ready - choose what to fetch';
+        }
+
+        async function fetchAllImages(forceRefresh = false) {
+            console.log('fetchAllImages called, forceRefresh:', forceRefresh);
+            console.log('Current shopifyApp state:', window.shopifyApp);
+            
+            const status = document.getElementById('images-status');
+            const gallery = document.getElementById('image-gallery');
+            const fetchBtn = document.getElementById('fetch-images-btn');
+            const refreshBtn = document.getElementById('refresh-images-btn');
+            
+            // Disable fetch buttons during operation
+            if (fetchBtn) fetchBtn.disabled = true;
+            if (refreshBtn) refreshBtn.disabled = true;
+            
+            // Check if we have the required credentials
+            if (!window.shopifyApp.accessToken || !window.shopifyApp.shop) {
+                console.error('Missing credentials:', { 
+                    shop: window.shopifyApp.shop, 
+                    token: window.shopifyApp.accessToken ? 'present' : 'missing' 
+                });
+                status.textContent = 'Error: Missing store credentials';
+                gallery.innerHTML = '<div class="error">Missing store credentials. Please reconnect.</div>';
+                showNotification('Missing store credentials. Please reconnect.', 'error');
+                
+                // Re-enable buttons
+                if (fetchBtn) fetchBtn.disabled = false;
+                if (refreshBtn) refreshBtn.disabled = false;
+                return;
+            }
+            
+            // Check session storage first (unless forcing refresh)
+            if (!forceRefresh && imageSession.load() && imageSession.isValid(window.shopifyApp.shop)) {
+                const age = imageSession.getAge();
+                if (age < 300) { // Less than 5 minutes old
+                    console.log(`Using cached images (${Math.round(age)}s old)`);
+                    displayImages(imageSession.images, 'All Images (Cached)');
+                    status.textContent = `Loaded ${imageSession.images.length} images (cached)`;
+                    
+                    // Show filters and update counts
+                    updateFilterCounts(imageSession.images);
+                    document.getElementById('image-filters').classList.remove('hidden');
+                    
+                    // Check if images need analysis (if they don't have analysis data)
+                    const needsAnalysis = imageSession.images.some(img => 
+                        typeof img === 'object' && 
+                        (img.size === undefined || img.width === undefined)
+                    );
+                    
+                    if (needsAnalysis) {
+                        showNotification(`Showing ${imageSession.images.length} cached images. Starting analysis...`, 'info');
+                        // Auto-analyze cached images that haven't been analyzed
+                        setTimeout(() => {
+                            analyzeImages();
+                        }, 1000);
+                    } else {
+                        // Images already analyzed
+                        showNotification(`Showing ${imageSession.images.length} cached images (analyzed).`, 'info');
+                        updateStats(imageSession.images);
+                        updateFilterCounts(imageSession.images);
+                        createFileTypeFilters(imageSession.images);
+                        document.getElementById('fetch-metadata-btn').classList.remove('hidden');
+                    }
+                    
+                    // Re-enable fetch buttons
+                    const fetchBtn = document.getElementById('fetch-images-btn');
+                    const refreshBtn = document.getElementById('refresh-images-btn');
+                    if (fetchBtn) fetchBtn.disabled = false;
+                    if (refreshBtn) refreshBtn.disabled = false;
+                    return;
+                }
+            }
+            
+            status.textContent = 'Loading all images...';
+            gallery.innerHTML = '<div class="loading">Loading images...</div>';
+            
+            try {
+                console.log('Making API request to /api/media with:', {
+                    shop: window.shopifyApp.shop,
+                    token: window.shopifyApp.accessToken ? 'present' : 'missing'
+                });
+                
+                const response = await fetch('/api/media', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        accessToken: window.shopifyApp.accessToken,
+                        shop: window.shopifyApp.shop
+                    })
+                });
+                
+                console.log('API response status:', response.status);
+                const data = await response.json();
+                console.log('API response data:', data);
+                
+                if (response.ok) {
+                    // Save to session
+                    imageSession.save(data.images, window.shopifyApp.shop);
+                    
+                    displayImages(data.images, 'All Images');
+                    status.textContent = `Loaded ${data.images.length} images`;
+                    
+                    // Update filter counts and show filters
+                    updateFilterCounts(data.images);
+                    document.getElementById('image-filters').classList.remove('hidden');
+                    
+                    // Update stats with new data structure
+                    if (data.stats) {
+                        document.getElementById('total-files').textContent = data.stats.totalFiles;
+                        document.getElementById('total-size').textContent = 'Unknown';
+                        document.getElementById('oversized-count').textContent = '0';
+                    } else {
+                        // Fallback for old data structure
+                        document.getElementById('total-files').textContent = data.images.length;
+                    }
+                    
+                    // Hide analyze button since we'll do it automatically
+                    document.getElementById('fetch-metadata-btn').classList.add('hidden');
+                    
+                    showNotification(`Successfully loaded ${data.images.length} images from your store! Starting analysis...`, 'success');
+                    
+                    // Automatically start analysis after a short delay
+                    setTimeout(() => {
+                        analyzeImages();
+                    }, 1000);
+                } else {
+                    throw new Error(data.error || 'Failed to fetch images');
+                }
+            } catch (error) {
+                console.error('Error fetching images:', error);
+                status.textContent = 'Error loading images';
+                gallery.innerHTML = '<div class="error">Failed to load images. Please try again.</div>';
+                showNotification('Failed to load images: ' + error.message, 'error');
+            } finally {
+                // Re-enable fetch buttons
+                const fetchBtn = document.getElementById('fetch-images-btn');
+                const refreshBtn = document.getElementById('refresh-images-btn');
+                if (fetchBtn) fetchBtn.disabled = false;
+                if (refreshBtn) refreshBtn.disabled = false;
+            }
+        }
+
+        // Frontend-based image analysis function
+        // Helper functions to disable/enable interface during analysis
+        function disableInterface() {
+            // Disable all buttons
+            const buttons = document.querySelectorAll('button');
+            buttons.forEach(btn => {
+                if (!btn.disabled) {
+                    btn.setAttribute('data-was-enabled', 'true');
+                    btn.disabled = true;
+                }
+            });
+            
+            // Disable all inputs
+            const inputs = document.querySelectorAll('input, select, textarea');
+            inputs.forEach(input => {
+                if (!input.disabled) {
+                    input.setAttribute('data-was-enabled', 'true');
+                    input.disabled = true;
+                }
+            });
+            
+            // Add analyzing overlay to prevent clicks
+            const overlay = document.createElement('div');
+            overlay.id = 'analyzing-overlay';
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(49, 42, 114, 0.3);
+                z-index: 9999;
+                cursor: not-allowed;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                backdrop-filter: blur(2px);
+            `;
+            overlay.innerHTML = `
+                <div style="
+                    background: white;
+                    padding: 30px;
+                    border-radius: 16px;
+                    box-shadow: 0 8px 25px rgba(49, 42, 114, 0.15);
+                    text-align: center;
+                    max-width: 400px;
+                    margin: 20px;
+                ">
+                    <div style="
+                        width: 40px;
+                        height: 40px;
+                        border: 4px solid #f3f3f3;
+                        border-top: 4px solid #312A72;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                        margin: 0 auto 20px;
+                    "></div>
+                    <h3 style="color: #312A72; margin-bottom: 10px; font-family: 'Lexend', sans-serif;">Analyzing Images</h3>
+                    <p id="analysis-progress-text" style="color: #6c757d; margin: 0; font-family: 'Lexend', sans-serif;">Starting image analysis...</p>
+                    <div style="margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 8px; font-size: 12px; color: #666;">
+                        <p style="margin: 0;"><strong>What we're analyzing:</strong></p>
+                        <p style="margin: 5px 0 0 0;">• File sizes and dimensions<br>• Image optimization opportunities<br>• Performance recommendations</p>
+                    </div>
+                </div>
+                <style>
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                </style>
+            `;
+            document.body.appendChild(overlay);
+        }
+        
+        function enableInterface() {
+            // Re-enable buttons that were previously enabled
+            const buttons = document.querySelectorAll('button[data-was-enabled="true"]');
+            buttons.forEach(btn => {
+                btn.disabled = false;
+                btn.removeAttribute('data-was-enabled');
+            });
+            
+            // Re-enable inputs that were previously enabled
+            const inputs = document.querySelectorAll('input[data-was-enabled="true"], select[data-was-enabled="true"], textarea[data-was-enabled="true"]');
+            inputs.forEach(input => {
+                input.disabled = false;
+                input.removeAttribute('data-was-enabled');
+            });
+            
+            // Remove analyzing overlay
+            const overlay = document.getElementById('analyzing-overlay');
+            if (overlay) {
+                overlay.remove();
+            }
+        }
+
+        async function analyzeImages() {
+            console.log('analyzeImages called');
+            
+            // Check if ImageOptimizer is available
+            if (!window.ImageOptimizer || !window.ImageOptimizer.analyzeImageSize) {
+                console.error('ImageOptimizer not loaded');
+                showNotification('Image analysis tools not loaded. Please refresh the page.', 'error');
+                return;
+            }
+            
+            if (!imageSession.load() || !imageSession.isValid(window.shopifyApp.shop)) {
+                showNotification('No images loaded. Please fetch images first.', 'error');
+                return;
+            }
+            
+            const images = imageSession.images;
+            const status = document.getElementById('images-status');
+            const analyzeBtn = document.getElementById('fetch-metadata-btn');
+            
+            try {
+                // Disable entire interface during analysis
+                disableInterface();
+                
+                // Update analyze button specifically
+                analyzeBtn.disabled = true;
+                analyzeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analyzing...';
+                
+                let processed = 0;
+                let totalSize = 0;
+                let largeFiles = 0;
+            
+            // Function to get image dimensions
+            function getImageDimensions(url) {
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    img.onload = function() {
+                        resolve({
+                            width: this.naturalWidth,
+                            height: this.naturalHeight,
+                            type: url.split('.').pop().toLowerCase()
+                        });
+                    };
+                    img.onerror = function() {
+                        resolve({
+                            width: 0,
+                            height: 0,
+                            type: 'unknown'
+                        });
+                    };
+                    img.src = url;
+                });
+            }
+            
+            // Function to get file size via HEAD request
+            async function getFileSize(url) {
+                try {
+                    const response = await fetch(url, { method: 'HEAD' });
+                    const size = parseInt(response.headers.get('content-length')) || 0;
+                    return size;
+                } catch (error) {
+                    return 0;
+                }
+            }
+            
+            // Process images in batches to avoid overwhelming the browser
+            const batchSize = 5;
+            const totalImages = images.length;
+            
+            for (let i = 0; i < totalImages; i += batchSize) {
+                const batch = images.slice(i, i + batchSize);
+                
+                await Promise.all(batch.map(async (image, batchIndex) => {
+                    const index = i + batchIndex;
+                    
+                    try {
+                        // Get file size and dimensions in parallel
+                        const [size, dimensions] = await Promise.all([
+                            getFileSize(image.url),
+                            getImageDimensions(image.url)
+                        ]);
+                        
+                        // Determine image type based on category
+                        let imageType = 'product'; // default
+                        if (image.category === 'collections') {
+                            imageType = 'collection';
+                        } else if (image.category === 'theme') {
+                            // For theme images, try to guess type from filename/path
+                            const url = image.url.toLowerCase();
+                            if (url.includes('banner') || url.includes('hero') || url.includes('slider')) {
+                                imageType = 'banner';
+                            } else if (url.includes('thumb') || url.includes('icon') || url.includes('logo')) {
+                                imageType = 'thumbnail';
+                            } else {
+                                imageType = 'banner'; // default for theme images
+                            }
+                        }
+                        
+                        // Use the image optimizer to analyze the image
+                        const analysisResult = window.ImageOptimizer.analyzeImageSize({
+                            id: image.url,
+                            src: image.url,
+                            width: dimensions.width,
+                            height: dimensions.height,
+                            sizeInBytes: size,
+                            type: imageType
+                        });
+                        
+                        // Update image object with analysis results
+                        image.size = size;
+                        image.sizeFormatted = analysisResult.sizeFormatted;
+                        image.isLarge = analysisResult.oversized;
+                        image.width = dimensions.width;
+                        image.height = dimensions.height;
+                        image.type = dimensions.type.toUpperCase();
+                        image.aspectRatio = dimensions.width && dimensions.height ? 
+                            (dimensions.width / dimensions.height).toFixed(2) : 'unknown';
+                        image.imageType = imageType;
+                        image.oversized = analysisResult.oversized;
+                        image.oversizeReasons = analysisResult.reasons;
+                        image.recommendations = analysisResult.recommendations;
+                        image.megapixels = analysisResult.megapixels;
+                        
+                        totalSize += size;
+                        if (image.isLarge) largeFiles++;
+                        
+                    } catch (error) {
+                        console.warn(`Failed to analyze image ${index}:`, error);
+                        // Keep original "Not checked" values
+                    }
+                    
+                    processed++;
+                }));
+                
+                // Update progress
+                const progress = Math.round((processed / totalImages) * 100);
+                status.textContent = `Analyzing images... ${progress}% (${processed}/${totalImages})`;
+                
+                // Update overlay progress text if it exists
+                const progressText = document.getElementById('analysis-progress-text');
+                if (progressText) {
+                    progressText.textContent = `Analyzed ${processed} of ${totalImages} images (${progress}%)`;
+                }
+                
+                // Small delay between batches to prevent browser freezing
+                if (i + batchSize < totalImages) {
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                }
+            }
+            
+            // Update session storage with analyzed data
+            imageSession.save(images, window.shopifyApp.shop);
+            
+            // Update UI
+            displayImages(images, 'All Images (Analyzed)');
+            
+            // Update filter counts
+            updateFilterCounts(images);
+            
+            // Create file type filters based on analyzed images
+            createFileTypeFilters(images);
+            
+            // Update stats
+            document.getElementById('total-files').textContent = totalImages;
+            document.getElementById('total-size').textContent = formatFileSize(totalSize);
+            document.getElementById('oversized-count').textContent = largeFiles;
+            
+            // Re-enable interface
+            enableInterface();
+            
+            // Show analyze button for re-analysis
+            document.getElementById('fetch-metadata-btn').classList.remove('hidden');
+            
+            // Update analyze button specifically
+            analyzeBtn.disabled = false;
+            analyzeBtn.innerHTML = '<i class="fas fa-info-circle"></i> Re-analyze Images';
+            
+            status.textContent = `Analysis complete: ${processed} images processed`;
+            showNotification(`Image analysis complete! Processed ${processed} images. Found ${largeFiles} oversized files.`, 'success');
+            
+            // Calculate optimization savings
+            setTimeout(() => {
+                calculateOptimizationSavings(images);
+            }, 500);
+            
+            } catch (error) {
+                console.error('Error during image analysis:', error);
+                
+                // Re-enable interface even on error
+                enableInterface();
+                
+                // Reset analyze button
+                analyzeBtn.disabled = false;
+                analyzeBtn.innerHTML = '<i class="fas fa-info-circle"></i> Analyze Images';
+                
+                status.textContent = 'Analysis failed';
+                showNotification('Image analysis failed: ' + error.message, 'error');
+            }
+        }
+
+        // Calculate and display optimization savings
+        async function calculateOptimizationSavings(images) {
+            console.log('Starting optimization savings calculation for', images.length, 'images');
+            
+            const optimizationSection = document.getElementById('optimization-section');
+            const loadingDiv = document.getElementById('optimization-loading');
+            const resultsDiv = document.getElementById('optimization-results');
+            
+            // Show optimization section and loading state
+            optimizationSection.classList.remove('hidden');
+            loadingDiv.classList.remove('hidden');
+            resultsDiv.classList.add('hidden');
+            
+            try {
+                // Call backend optimization calculation endpoint
+                const response = await fetch('/api/optimization/calculate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        images: images
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Failed to calculate optimization savings: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (!data.success || !data.optimization) {
+                    throw new Error('Invalid optimization calculation response');
+                }
+                
+                const optimization = data.optimization;
+                console.log('Optimization calculation result:', optimization);
+                
+                // Update UI with optimization results
+                updateOptimizationUI(optimization);
+                
+                // Hide loading and show results
+                loadingDiv.classList.add('hidden');
+                resultsDiv.classList.remove('hidden');
+                
+                showNotification(`Optimization analysis complete! Found ${optimization.summary.formattedSavings} potential savings.`, 'success');
+                
+            } catch (error) {
+                console.error('Error calculating optimization savings:', error);
+                
+                // Hide loading
+                loadingDiv.classList.add('hidden');
+                
+                // Show error message
+                resultsDiv.innerHTML = `
+                    <div class="error-message">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <p>Failed to calculate optimization savings. Please try again.</p>
+                        <small>${error.message}</small>
+                    </div>
+                `;
+                resultsDiv.classList.remove('hidden');
+                
+                showNotification('Failed to calculate optimization savings', 'error');
+            }
+        }
+        
+        // Update optimization UI with calculated data
+        function updateOptimizationUI(optimization) {
+            const summary = optimization.summary;
+            
+            // Update total savings
+            document.getElementById('total-savings-amount').textContent = summary.formattedSavings;
+            document.getElementById('total-savings-percent').textContent = `${summary.totalSavingsPercent}%`;
+            document.getElementById('optimizable-count').textContent = summary.optimizableImages;
+            
+            // Update compression savings
+            const compressionMB = (summary.compressionSavings / (1024 * 1024)).toFixed(2);
+            document.getElementById('compression-savings').textContent = `${compressionMB} MB`;
+            
+            // Update resize savings
+            const resizeMB = (summary.resizeSavings / (1024 * 1024)).toFixed(2);
+            document.getElementById('resize-savings').textContent = `${resizeMB} MB`;
+            document.getElementById('resizable-count').textContent = summary.resizableImages;
+            
+            // Store optimization data globally for detailed view
+            window.currentOptimizationData = optimization;
+            
+            // Set up event listeners for optimization actions
+            setupOptimizationActions(optimization);
+        }
+        
+        // Set up optimization action button handlers
+        function setupOptimizationActions(optimization) {
+            // View detailed breakdown
+            document.getElementById('view-optimization-details').onclick = () => {
+                showOptimizationDetails(optimization);
+            };
+            
+            // Download optimization report
+            document.getElementById('download-optimization-report').onclick = () => {
+                downloadOptimizationReport(optimization);
+            };
+        }
+        
+        // Show detailed optimization breakdown in modal
+        function showOptimizationDetails(optimization) {
+            const modal = document.createElement('div');
+            modal.className = 'modal';
+            modal.innerHTML = `
+                <div class="modal-content optimization-details-modal">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-chart-bar"></i> Optimization Details</h3>
+                        <button class="modal-close" onclick="this.closest('.modal').remove()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="optimization-summary">
+                            <h4>Summary</h4>
+                            <div class="summary-grid">
+                                <div class="summary-item">
+                                    <label>Total Images:</label>
+                                    <span>${optimization.summary.totalImages}</span>
+                                </div>
+                                <div class="summary-item">
+                                    <label>Optimizable Images:</label>
+                                    <span>${optimization.summary.optimizableImages}</span>
+                                </div>
+                                <div class="summary-item">
+                                    <label>Current Total Size:</label>
+                                    <span>${optimization.summary.formattedOriginalSize}</span>
+                                </div>
+                                <div class="summary-item">
+                                    <label>Optimized Size:</label>
+                                    <span>${optimization.summary.formattedOptimizedSize}</span>
+                                </div>
+                                <div class="summary-item total">
+                                    <label>Total Savings:</label>
+                                    <span>${optimization.summary.formattedSavings} (${optimization.summary.totalSavingsPercent}%)</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="image-breakdown">
+                            <h4>Per-Image Breakdown</h4>
+                            <div class="breakdown-table">
+                                <div class="breakdown-header">
+                                    <div>Image</div>
+                                    <div>Current Size</div>
+                                    <div>Potential Savings</div>
+                                    <div>Recommendations</div>
+                                </div>
+                                ${optimization.images.map(img => `
+                                    <div class="breakdown-row ${img.totalSavings > 0 ? 'optimizable' : 'no-savings'}">
+                                        <div class="image-info">
+                                            <div class="image-name">${img.name || 'Unknown'}</div>
+                                            <div class="image-meta">${img.width || 0}×${img.height || 0}</div>
+                                        </div>
+                                        <div class="current-size">${formatBytes(img.originalSize)}</div>
+                                        <div class="savings ${img.totalSavings > 0 ? 'has-savings' : 'no-savings'}">
+                                            ${img.totalSavings > 0 ? 
+                                                `${formatBytes(img.totalSavings)} (${img.totalSavingsPercent}%)` : 
+                                                'No optimization needed'
+                                            }
+                                        </div>
+                                        <div class="recommendations">
+                                            ${img.recommendations.map(rec => `
+                                                <div class="recommendation">
+                                                    <i class="fas fa-${rec.type === 'resize' ? 'expand-arrows-alt' : 'compress'}"></i>
+                                                    ${rec.description}
+                                                    <span class="rec-savings">${formatBytes(rec.savings)}</span>
+                                                </div>
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Close modal when clicking outside
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
+        
+        // Download optimization report as JSON
+        function downloadOptimizationReport(optimization) {
+            const report = {
+                generatedAt: new Date().toISOString(),
+                store: currentStore,
+                summary: optimization.summary,
+                images: optimization.images.map(img => ({
+                    name: img.name,
+                    url: img.url,
+                    originalSize: img.originalSize,
+                    optimizedSize: img.optimizedSize,
+                    totalSavings: img.totalSavings,
+                    totalSavingsPercent: img.totalSavingsPercent,
+                    recommendations: img.recommendations
+                }))
+            };
+            
+            const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `optimization-report-${currentStore}-${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            showNotification('Optimization report downloaded', 'success');
+        }
+        
+        // Helper function for formatting bytes (client-side)
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function showAuthenticatedApp(shop, accessToken) {
+            // Update store info
+            document.getElementById('store-name').textContent = shop;
+            document.getElementById('store-domain').textContent = shop;
+            
+            // Show connection status as connected
+            const statusEl = document.getElementById('connection-status');
+            statusEl.className = 'status-connected';
+            statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Connected';
+            
+            // Show store info
+            document.getElementById('store-info').classList.remove('hidden');
+            
+            // Show all app sections
+            document.getElementById('auth-section').classList.remove('hidden');
+            document.getElementById('media-section').classList.remove('hidden');
+            document.getElementById('stats-section').classList.remove('hidden');
+            
+            // Hide installation section
+            document.getElementById('installation-section').classList.add('hidden');
+            
+            showNotification('Successfully connected to ' + shop, 'success');
+        }
+
+        function showNotification(message, type = 'info') {
+            const notifications = document.getElementById('notifications');
+            const notification = document.createElement('div');
+            notification.className = `notification notification-${type}`;
+            notification.innerHTML = `
+                <span>${message}</span>
+                <button onclick="this.parentElement.remove()">&times;</button>
+            `;
+            notifications.appendChild(notification);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (notification.parentElement) {
+                    notification.remove();
+                }
+            }, 5000);
+        }
+
+        function displayImages(images, title) {
+            const gallery = document.getElementById('image-gallery');
+            gallery.innerHTML = '';
+
+            if (!images || images.length === 0) {
+                gallery.innerHTML = '<div class="error">No images to display.</div>';
+                return;
+            }
+
+            const header = document.createElement('h3');
+            header.textContent = title || 'Images';
+            gallery.appendChild(header);
+
+            const list = document.createElement('ul');
+            list.className = 'image-list';
+
+            images.forEach(image => {
+                const listItem = document.createElement('li');
+                listItem.className = 'image-list-item';
+
+                const thumbnail = document.createElement('img');
+                thumbnail.src = image.url;
+                thumbnail.alt = image.name || 'Image';
+                thumbnail.title = image.name || 'Image';
+                thumbnail.className = 'image-thumbnail';
+
+                const caption = document.createElement('span');
+                caption.className = 'image-caption';
+                caption.textContent = image.name || 'Unnamed Image';
+
+                listItem.appendChild(thumbnail);
+                listItem.appendChild(caption);
+                list.appendChild(listItem);
+            });
+
+            gallery.appendChild(list);
+        }
+
+        function createFileTypeFilters(images) {
+            const filterContainer = document.getElementById('file-type-filters');
+            filterContainer.innerHTML = '';
+
+            const fileTypeCounts = images.reduce((counts, image) => {
+                const fileType = image.url.split('.').pop().toLowerCase();
+                counts[fileType] = (counts[fileType] || 0) + 1;
+                return counts;
+            }, {});
+
+            Object.entries(fileTypeCounts).forEach(([fileType, count]) => {
+                const filterButton = document.createElement('button');
+                filterButton.className = 'filter-button';
+                filterButton.textContent = `${fileType.toUpperCase()} (${count})`;
+                filterButton.onclick = () => {
+                    const filteredImages = images.filter(image => image.url.endsWith(`.${fileType}`));
+                    displayImages(filteredImages, `Images (${fileType.toUpperCase()})`);
+                };
+                filterContainer.appendChild(filterButton);
+            });
+
+            const showAllButton = document.createElement('button');
+            showAllButton.className = 'filter-button';
+            showAllButton.textContent = 'All';
+            showAllButton.onclick = () => displayImages(images, 'All Images');
+            filterContainer.appendChild(showAllButton);
+        }
+
+        function updateFilterCounts(images) {
+            const fileTypeCounts = images.reduce((counts, image) => {
+                const fileType = image.url.split('.').pop().toLowerCase();
+                counts[fileType] = (counts[fileType] || 0) + 1;
+                return counts;
+            }, {});
+
+            const totalFiles = images.length;
+            const largeFiles = images.filter(img => img.isLarge).length;
+
+            document.getElementById('total-files').textContent = totalFiles;
+            document.getElementById('oversized-count').textContent = largeFiles;
+
+            const filterContainer = document.getElementById('file-type-filters');
+            filterContainer.innerHTML = '';
+
+            Object.entries(fileTypeCounts).forEach(([fileType, count]) => {
+                const filterButton = document.createElement('button');
+                filterButton.className = 'filter-button';
+                filterButton.textContent = `${fileType.toUpperCase()} (${count})`;
+                filterButton.onclick = () => {
+                    const filteredImages = images.filter(image => image.url.endsWith(`.${fileType}`));
+                    displayImages(filteredImages, `Images (${fileType.toUpperCase()})`);
+                };
+                filterContainer.appendChild(filterButton);
+            });
+
+            const showAllButton = document.createElement('button');
+            showAllButton.className = 'filter-button';
+            showAllButton.textContent = 'All';
+            showAllButton.onclick = () => displayImages(images, 'All Images');
+            filterContainer.appendChild(showAllButton);
+        }
+
+        function updateSelectionCount(images) {
+            // Update the selection count display
+            const selectionCount = document.getElementById('selection-count');
+            if (selectionCount) {
+                const selectedCount = 0; // Since we don't have selection functionality in list view yet
+                selectionCount.textContent = `${selectedCount} selected`;
+            }
+            
+            // Update download buttons state
+            const downloadSelectedBtn = document.getElementById('download-selected-btn');
+            if (downloadSelectedBtn) {
+                downloadSelectedBtn.disabled = true; // Disabled since no selection in list view
+            }
+        }
+    </script>
+    
+    <!-- External Scripts -->
+    <script src="app.js"></script>
+    <script src="image-optimizer.js"></script>
+    
+    <!-- Initialize optimization functionality -->
+    <script>
+        console.log('Initialization script loaded');
+        
+        // Add optimization functionality after DOM loads
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM loaded - checking dependencies');
+            
+            if (!window.ImageOptimizer) {
+                console.warn('ImageOptimizer not available');
+            } else {
+                console.log('ImageOptimizer loaded successfully');
+            }
+            
+            // The calculateOptimizationSavings function should already exist in the main script
+            console.log('Optimization functionality ready');
+        });
+    </script>
+    
+    <!-- SPREE Footer -->
+    <footer class="spree-footer">
+        <div class="footer-content">
+            <div class="footer-logo">
+                <img src="https://wearespree.com/img/spree-logo.svg" alt="SPREE Agency" class="footer-logo-img">
+                <div class="footer-text">
+                    <h4>SPREE Agency</h4>
+                    <p>Professional Shopify Solutions</p>
+                </div>
+            </div>
+            <div class="footer-links">
+                <a href="https://wearespree.com" target="_blank" rel="noopener">
+                    <i class="fas fa-globe"></i> Visit Our Website
+                </a>
+                <a href="https://wearespree.com/#contact" target="_blank" rel="noopener">
+                    <i class="fas fa-envelope"></i> Contact Us
+                </a>
+            </div>
+        </div>
+        <div class="footer-bottom">
+            <p>&copy; 2025 SPREE Agency. All rights reserved.</p>
+        </div>
+    </footer>
+</body>
+</html>

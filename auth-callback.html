@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shopify Auth Callback</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .callback-container {
+            text-align: center;
+            padding: 40px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            margin-bottom: 20px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        h1 {
+            margin-bottom: 10px;
+        }
+        
+        p {
+            opacity: 0.8;
+        }
+        
+        .error {
+            color: #ff6b6b;
+        }
+    </style>
+</head>
+<body>
+    <div class="callback-container">
+        <div class="spinner"></div>
+        <h1>Completing Authentication...</h1>
+        <p>Please wait while we complete your Shopify store connection.</p>
+    </div>
+
+    <script>
+        // Handle OAuth callback
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('code');
+        const shop = urlParams.get('shop');
+        const state = urlParams.get('state');
+        
+        if (code && shop) {
+            // Exchange the authorization code for an access token
+            exchangeCodeForToken(code, shop);
+        } else {
+            // Handle error
+            showError('Missing authorization code or shop parameter');
+        }
+        
+        function getTokenExchangeEndpoint() {
+            // Use Netlify Functions endpoint if running on Netlify/static.app
+            const origin = window.location.origin;
+            if (
+                origin.includes('netlify.app') ||
+                origin.includes('static.app')
+            ) {
+                return '/.netlify/functions/shopify-auth';
+            }
+            // Otherwise, use the local/Cloudflare Express endpoint
+            return origin + '/api/shopify/exchange-code';
+        }
+        
+        function showError(message) {
+            document.querySelector('.callback-container').innerHTML = `
+                <h1 class="error">Authentication Failed</h1>
+                <p class="error">${message}</p>
+                <p>Please close this window and try again.</p>
+            `;
+        }
+        
+        async function exchangeCodeForToken(code, shop) {
+            try {
+                // Instead of handling token exchange here, redirect to the server endpoint
+                // The server.js handles /auth-callback.html and will create the proper redirect
+                // This static file shouldn't be handling the OAuth flow
+                
+                showError('This should not be reached - redirecting to server handler...');
+                
+                // Redirect to ensure server handler processes this
+                setTimeout(() => {
+                    window.location.href = window.location.href;
+                }, 1000);
+                
+            } catch (err) {
+                showError('Failed to complete authentication: ' + err.message);
+            }
+        }
+    </script>
+</body>
+</html>

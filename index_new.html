@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shopify Media Manager</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- Shopify App Bridge -->
+    <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1><i class="fab fa-shopify"></i> Shopify Media Manager</h1>
+            <p>Download, optimize, and reupload your store's media files</p>
+        </header>
+
+        <!-- Installation/Loading Section -->
+        <section id="installation-section" class="section">
+            <div class="card">
+                <div id="loading-state" class="loading-state">
+                    <i class="fas fa-spinner fa-spin fa-2x"></i>
+                    <p>Setting up your Shopify Media Manager...</p>
+                </div>
+                
+                <div id="install-prompt" class="install-prompt hidden">
+                    <h2><i class="fas fa-download"></i> Install Shopify Media Manager</h2>
+                    <p>Click the button below to install and connect your Shopify store.</p>
+                    <button id="install-btn" class="btn btn-primary">
+                        <i class="fab fa-shopify"></i> Install App
+                    </button>
+                </div>
+
+                <div id="auth-error" class="auth-error hidden">
+                    <h2><i class="fas fa-exclamation-triangle"></i> Installation Required</h2>
+                    <p>Please install this app through your Shopify admin panel.</p>
+                    <button id="retry-auth" class="btn btn-secondary">
+                        <i class="fas fa-redo"></i> Retry
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Authentication Section -->
+        <section id="auth-section" class="section hidden">
+            <div class="card">
+                <h2><i class="fas fa-key"></i> Store Connection</h2>
+                <div id="connection-status" class="status-disconnected">
+                    <i class="fas fa-times-circle"></i> Not Connected
+                </div>
+                <button id="connect-btn" class="btn btn-primary">
+                    <i class="fab fa-shopify"></i> Connect to Shopify Store
+                </button>
+                <div id="store-info" class="store-info hidden">
+                    <h3>Connected Store</h3>
+                    <p><strong>Store:</strong> <span id="store-name"></span></p>
+                    <p><strong>Domain:</strong> <span id="store-domain"></span></p>
+                    <button id="disconnect-btn" class="btn btn-secondary">
+                        <i class="fas fa-sign-out-alt"></i> Disconnect
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Media Management Section -->
+        <section id="media-section" class="section hidden">
+            <div class="card">
+                <h2><i class="fas fa-images"></i> Media Management</h2>
+                
+                <!-- Fetch All Images Button -->
+                <div style="margin-bottom: 1em;">
+                    <button id="fetch-images-btn" class="btn btn-primary">Fetch All Image Assets</button>
+                    <span id="images-status" style="margin-left: 1em; color: #888;"></span>
+                </div>
+                
+                <!-- Individual Category Buttons -->
+                <div style="margin-bottom: 1em; display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button id="fetch-theme-btn" class="btn btn-outline">Theme Images</button>
+                    <button id="fetch-products-btn" class="btn btn-outline">Product Images</button>
+                    <button id="fetch-collections-btn" class="btn btn-outline">Collection Images</button>
+                </div>
+                
+                <!-- Image Gallery -->
+                <div id="image-gallery" class="image-gallery"></div>
+                
+                <!-- Download Controls -->
+                <div id="download-controls" class="download-controls hidden">
+                    <button id="download-all-btn" class="btn btn-success">
+                        <i class="fas fa-download"></i> Download All Images
+                    </button>
+                    <button id="download-selected-btn" class="btn btn-info">
+                        <i class="fas fa-check-square"></i> Download Selected
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Statistics Section -->
+        <section id="stats-section" class="section hidden">
+            <div class="card">
+                <h2><i class="fas fa-chart-bar"></i> Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">Total Files:</span>
+                        <span id="total-files" class="stat-value">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Total Size:</span>
+                        <span id="total-size" class="stat-value">0 MB</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Oversized Files:</span>
+                        <span id="oversized-count" class="stat-value">0</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Notifications -->
+        <div id="notifications" class="notifications"></div>
+    </div>
+
+    <script>
+        // Global app state
+        window.shopifyApp = {
+            shop: null,
+            accessToken: null,
+            bridge: null
+        };
+
+        // Check for URL parameters on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const shop = urlParams.get('shop');
+            const token = urlParams.get('token');
+            const hmac = urlParams.get('hmac');
+            const host = urlParams.get('host');
+
+            console.log('Page loaded with params:', { shop, token: token ? 'present' : 'missing', hmac: hmac ? 'present' : 'missing' });
+
+            if (shop && token) {
+                // We have shop and token from OAuth callback
+                console.log('Authenticated session detected');
+                initializeAuthenticatedApp(shop, token);
+            } else if (shop && hmac) {
+                // This is an installation request from Shopify
+                console.log('Installation request detected');
+                showInstallPrompt(shop);
+            } else {
+                // No shop parameter - show error
+                console.log('No shop parameter found');
+                showAuthError();
+            }
+        });
+
+        function initializeAuthenticatedApp(shop, accessToken) {
+            window.shopifyApp.shop = shop;
+            window.shopifyApp.accessToken = accessToken;
+
+            // Hide installation section
+            document.getElementById('installation-section').classList.add('hidden');
+            
+            // Initialize App Bridge
+            try {
+                // Get API key first
+                fetch('/api/config')
+                    .then(response => response.json())
+                    .then(config => {
+                        window.shopifyApp.bridge = createApp({
+                            apiKey: config.apiKey,
+                            host: new URLSearchParams(window.location.search).get('host') || btoa(shop + '/admin'),
+                            forceRedirect: true
+                        });
+                        console.log('App Bridge initialized');
+                    })
+                    .catch(error => {
+                        console.error('Failed to load API config:', error);
+                    });
+            } catch (error) {
+                console.error('App Bridge initialization failed:', error);
+            }
+
+            // Show authenticated sections
+            showAuthenticatedApp(shop, accessToken);
+        }
+
+        function showInstallPrompt(shop) {
+            document.getElementById('loading-state').classList.add('hidden');
+            document.getElementById('install-prompt').classList.remove('hidden');
+            
+            document.getElementById('install-btn').addEventListener('click', function() {
+                // Trigger OAuth flow
+                startOAuthFlow(shop);
+            });
+        }
+
+        function showAuthError() {
+            document.getElementById('loading-state').classList.add('hidden');
+            document.getElementById('auth-error').classList.remove('hidden');
+            
+            document.getElementById('retry-auth').addEventListener('click', function() {
+                window.location.reload();
+            });
+        }
+
+        function startOAuthFlow(shop) {
+            // Get API key from server
+            fetch('/api/config')
+                .then(response => response.json())
+                .then(config => {
+                    const scopes = 'read_products,write_products,read_themes,write_themes';
+                    const redirectUri = encodeURIComponent('https://app.wearespree.com/auth-callback.html');
+                    const state = Math.random().toString(36).substring(7);
+                    
+                    const authUrl = `https://${shop}/admin/oauth/authorize?` +
+                        `client_id=${config.apiKey}&` +
+                        `scope=${encodeURIComponent(scopes)}&` +
+                        `redirect_uri=${redirectUri}&` +
+                        `state=${state}`;
+                    
+                    console.log('Redirecting to OAuth:', authUrl);
+                    window.location.href = authUrl;
+                })
+                .catch(error => {
+                    console.error('Failed to get API config:', error);
+                    showNotification('Failed to start installation process', 'error');
+                });
+        }
+
+        function showAuthenticatedApp(shop, accessToken) {
+            // Update store info
+            document.getElementById('store-name').textContent = shop;
+            document.getElementById('store-domain').textContent = shop;
+            
+            // Show connection status as connected
+            const statusEl = document.getElementById('connection-status');
+            statusEl.className = 'status-connected';
+            statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Connected';
+            
+            // Show store info
+            document.getElementById('store-info').classList.remove('hidden');
+            
+            // Show all app sections
+            document.getElementById('auth-section').classList.remove('hidden');
+            document.getElementById('media-section').classList.remove('hidden');
+            document.getElementById('stats-section').classList.remove('hidden');
+            
+            // Hide installation section
+            document.getElementById('installation-section').classList.add('hidden');
+            
+            showNotification('Successfully connected to ' + shop, 'success');
+        }
+
+        function showNotification(message, type = 'info') {
+            const notifications = document.getElementById('notifications');
+            const notification = document.createElement('div');
+            notification.className = `notification notification-${type}`;
+            notification.innerHTML = `
+                <span>${message}</span>
+                <button onclick="this.parentElement.remove()">&times;</button>
+            `;
+            notifications.appendChild(notification);
+            
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (notification.parentElement) {
+                    notification.remove();
+                }
+            }, 5000);
+        }
+    </script>
+    <script src="app.js"></script>
+</body>
+</html>
