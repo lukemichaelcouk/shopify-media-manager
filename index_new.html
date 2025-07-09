@@ -228,6 +228,338 @@
                 });
         }
 
+        // Session storage for images
+        const imageSession = {
+            images: [],
+            lastFetched: null,
+            shop: null,
+            
+            save: function(images, shop) {
+                this.images = images;
+                this.lastFetched = new Date().toISOString();
+                this.shop = shop;
+                sessionStorage.setItem('shopify_media_session', JSON.stringify({
+                    images: this.images,
+                    lastFetched: this.lastFetched,
+                    shop: this.shop
+                }));
+            },
+            
+            load: function() {
+                try {
+                    const stored = sessionStorage.getItem('shopify_media_session');
+                    if (stored) {
+                        const data = JSON.parse(stored);
+                        this.images = data.images || [];
+                        this.lastFetched = data.lastFetched;
+                        this.shop = data.shop;
+                        return true;
+                    }
+                } catch (error) {
+                    console.warn('Failed to load session data:', error);
+                }
+                return false;
+            },
+            
+            clear: function() {
+                this.images = [];
+                this.lastFetched = null;
+                this.shop = null;
+                sessionStorage.removeItem('shopify_media_session');
+            },
+            
+            isValid: function(shop) {
+                return this.shop === shop && this.images.length > 0 && this.lastFetched;
+            }
+        };
+
+        // Display images with replace button functionality
+        function displayImages(images, title) {
+            const gallery = document.getElementById('image-gallery');
+            gallery.innerHTML = '';
+
+            if (!images || images.length === 0) {
+                gallery.innerHTML = '<div class="error">No images to display.</div>';
+                return;
+            }
+
+            const header = document.createElement('h3');
+            header.textContent = title || 'Images';
+            gallery.appendChild(header);
+
+            const list = document.createElement('ul');
+            list.className = 'image-list';
+
+            images.forEach((image, index) => {
+                const listItem = document.createElement('li');
+                listItem.className = 'image-list-item';
+                listItem.setAttribute('data-image-index', index);
+
+                // Selection checkbox
+                const checkboxContainer = document.createElement('div');
+                checkboxContainer.className = 'image-checkbox-container';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'image-checkbox';
+                checkbox.id = `image-checkbox-${index}`;
+                checkboxContainer.appendChild(checkbox);
+
+                // Image thumbnail
+                const thumbnail = document.createElement('img');
+                thumbnail.src = image.url;
+                thumbnail.alt = 'Image thumbnail';
+                thumbnail.className = 'image-thumbnail';
+                
+                // Image details container
+                const details = document.createElement('div');
+                details.className = 'image-details';
+
+                // File size
+                const sizeEl = document.createElement('div');
+                sizeEl.className = 'image-detail';
+                sizeEl.innerHTML = `<strong>Size:</strong> ${formatFileSize(image.size || 0)}`;
+                details.appendChild(sizeEl);
+
+                // Dimensions
+                const dimensionsEl = document.createElement('div');
+                dimensionsEl.className = 'image-detail';
+                const width = image.width || 0;
+                const height = image.height || 0;
+                dimensionsEl.innerHTML = `<strong>Dimensions:</strong> ${width} × ${height}px`;
+                details.appendChild(dimensionsEl);
+
+                // URL (truncated for display)
+                const urlEl = document.createElement('div');
+                urlEl.className = 'image-detail url-detail';
+                const truncatedUrl = image.url.length > 60 ? image.url.substring(0, 60) + '...' : image.url;
+                urlEl.innerHTML = `<strong>URL:</strong> <span class="image-url" title="${image.url}">${truncatedUrl}</span>`;
+                details.appendChild(urlEl);
+
+                // Button container for image actions
+                const buttonContainer = document.createElement('div');
+                buttonContainer.className = 'image-actions';
+                buttonContainer.style.cssText = 'display: flex; gap: 8px; margin-top: 8px;';
+
+                // Open in new tab button
+                const openButton = document.createElement('a');
+                openButton.href = image.url;
+                openButton.target = '_blank';
+                openButton.rel = 'noopener noreferrer';
+                openButton.className = 'btn btn-outline btn-small open-image-btn';
+                openButton.innerHTML = '<i class="fas fa-external-link-alt"></i> Open Image';
+                buttonContainer.appendChild(openButton);
+
+                // Replace image button
+                const replaceButton = document.createElement('button');
+                replaceButton.className = 'btn btn-primary btn-small replace-image-btn';
+                replaceButton.innerHTML = '<i class="fas fa-upload"></i> Replace';
+                replaceButton.title = 'Replace this image with a new one';
+                replaceButton.onclick = () => showReplaceImageModal(image, index);
+                buttonContainer.appendChild(replaceButton);
+
+                details.appendChild(buttonContainer);
+
+                listItem.appendChild(checkboxContainer);
+                listItem.appendChild(thumbnail);
+                listItem.appendChild(details);
+                list.appendChild(listItem);
+            });
+
+            gallery.appendChild(list);
+            
+            // Show download controls when images are displayed
+            if (images.length > 0) {
+                document.getElementById('download-controls').classList.remove('hidden');
+            }
+        }
+
+        // Show replace image modal
+        function showReplaceImageModal(image, index) {
+            const modal = document.createElement('div');
+            modal.className = 'modal';
+            modal.innerHTML = `
+                <div class="modal-content replace-image-modal">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-upload"></i> Replace Image</h3>
+                        <button class="modal-close" onclick="this.closest('.modal').remove()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="current-image-info">
+                            <h4>Current Image</h4>
+                            <div class="image-preview">
+                                <img src="${image.url}" alt="Current image" style="max-width: 200px; max-height: 200px; object-fit: contain; border: 1px solid #ddd; border-radius: 8px;">
+                                <div class="image-details" style="margin-top: 10px;">
+                                    <p><strong>Size:</strong> ${formatFileSize(image.size || 0)}</p>
+                                    <p><strong>Dimensions:</strong> ${image.width || 0} × ${image.height || 0}px</p>
+                                    <p><strong>Type:</strong> ${getFileExtension(image.url).toUpperCase()}</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="new-image-upload" style="margin-top: 20px;">
+                            <h4>Select New Image</h4>
+                            <div class="upload-area" id="upload-area-${index}" style="border: 2px dashed #312A72; border-radius: 8px; padding: 20px; text-align: center; cursor: pointer; background: #f8f9fa;">
+                                <div class="upload-placeholder">
+                                    <i class="fas fa-cloud-upload-alt fa-3x" style="color: #312A72; margin-bottom: 10px;"></i>
+                                    <p>Click to select image or drag & drop</p>
+                                    <p style="font-size: 12px; color: #666;">Supported formats: JPG, PNG, WebP, GIF (Max 10MB)</p>
+                                </div>
+                                <input type="file" id="file-input-${index}" accept="image/*" style="display: none;">
+                            </div>
+                            <div id="preview-area-${index}" style="margin-top: 15px; display: none;">
+                                <h5>New Image Preview:</h5>
+                                <img id="preview-image-${index}" style="max-width: 200px; max-height: 200px; object-fit: contain; border: 1px solid #ddd; border-radius: 8px;">
+                                <div id="preview-details-${index}" style="margin-top: 10px; font-size: 14px; color: #666;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-outline" onclick="this.closest('.modal').remove()">Cancel</button>
+                        <button class="btn btn-primary" id="replace-btn-${index}" disabled onclick="replaceImage(${index})">
+                            <i class="fas fa-upload"></i> Replace Image
+                        </button>
+                    </div>
+                </div>
+            `;
+            
+            document.body.appendChild(modal);
+            
+            // Set up file input handling
+            const fileInput = document.getElementById(`file-input-${index}`);
+            const uploadArea = document.getElementById(`upload-area-${index}`);
+            const previewArea = document.getElementById(`preview-area-${index}`);
+            const previewImage = document.getElementById(`preview-image-${index}`);
+            const previewDetails = document.getElementById(`preview-details-${index}`);
+            const replaceBtn = document.getElementById(`replace-btn-${index}`);
+            
+            // Upload area click handler
+            uploadArea.addEventListener('click', () => fileInput.click());
+            
+            // File input change handler
+            fileInput.addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    handleFileSelection(e.target.files[0], index);
+                }
+            });
+            
+            // Store the original image data for replacement
+            window.replaceImageData = window.replaceImageData || {};
+            window.replaceImageData[index] = {
+                originalImage: image,
+                originalIndex: index,
+                newFile: null
+            };
+            
+            // Close modal when clicking outside
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    modal.remove();
+                }
+            });
+        }
+        
+        // Handle file selection for image replacement
+        function handleFileSelection(file, index) {
+            // Validate file type
+            if (!file.type.startsWith('image/')) {
+                showNotification('Please select a valid image file.', 'error');
+                return;
+            }
+            
+            // Validate file size (10MB limit)
+            if (file.size > 10 * 1024 * 1024) {
+                showNotification('File size must be less than 10MB.', 'error');
+                return;
+            }
+            
+            const previewArea = document.getElementById(`preview-area-${index}`);
+            const previewImage = document.getElementById(`preview-image-${index}`);
+            const previewDetails = document.getElementById(`preview-details-${index}`);
+            const replaceBtn = document.getElementById(`replace-btn-${index}`);
+            
+            // Show preview
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                previewImage.src = e.target.result;
+                previewArea.style.display = 'block';
+                
+                // Get image dimensions
+                const img = new Image();
+                img.onload = function() {
+                    previewDetails.innerHTML = `
+                        <p><strong>Size:</strong> ${formatFileSize(file.size)}</p>
+                        <p><strong>Dimensions:</strong> ${this.width} × ${this.height}px</p>
+                        <p><strong>Type:</strong> ${file.type.split('/')[1].toUpperCase()}</p>
+                    `;
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+            
+            // Enable replace button
+            replaceBtn.disabled = false;
+            
+            // Store the file for replacement
+            window.replaceImageData[index].newFile = file;
+        }
+        
+        // Replace image function
+        async function replaceImage(index) {
+            const replaceData = window.replaceImageData[index];
+            if (!replaceData || !replaceData.newFile) {
+                showNotification('No file selected for replacement.', 'error');
+                return;
+            }
+            
+            showNotification('Image replacement feature would upload new image here', 'info');
+            // In a real implementation, this would upload to Shopify
+            
+            // Close modal after demo
+            setTimeout(() => {
+                const modal = document.querySelector('.modal');
+                if (modal) modal.remove();
+            }, 2000);
+        }
+
+        // Utility functions
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function getFileExtension(url) {
+            return url.split('.').pop().split('?')[0].split('#')[0].toLowerCase();
+        }
+
+        // Initialize media functionality when authenticated
+        function initializeMediaFunctionality() {
+            // Add event listeners for fetch buttons
+            document.getElementById('fetch-images-btn').addEventListener('click', async () => {
+                showNotification('Fetching images...', 'info');
+                // Simulate fetching images
+                const mockImages = [
+                    {
+                        url: 'https://via.placeholder.com/300x200/ff6b6b/ffffff?text=Image+1',
+                        size: 150000,
+                        width: 300,
+                        height: 200
+                    },
+                    {
+                        url: 'https://via.placeholder.com/400x300/4ecdc4/ffffff?text=Image+2',
+                        size: 250000,
+                        width: 400,
+                        height: 300
+                    }
+                ];
+                displayImages(mockImages, 'Sample Images');
+                showNotification('Images loaded successfully!', 'success');
+            });
+        }
+
+        // Call this when app is authenticated
         function showAuthenticatedApp(shop, accessToken) {
             // Update store info
             document.getElementById('store-name').textContent = shop;
@@ -248,6 +580,9 @@
             
             // Hide installation section
             document.getElementById('installation-section').classList.add('hidden');
+            
+            // Initialize media functionality
+            initializeMediaFunctionality();
             
             showNotification('Successfully connected to ' + shop, 'success');
         }

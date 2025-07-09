@@ -535,9 +535,9 @@ app.get('/install', (req, res) => {
 // Serve static files (CSS, JS, images, etc.)
 app.use(express.static('.'));
 
-// Serve index.html for all other routes (SPA support) - this must be last
+// Serve index_new.html for all other routes (SPA support) - this must be last
 app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    res.sendFile(path.join(__dirname, 'index_new.html'));
 });
 
 // Start server
