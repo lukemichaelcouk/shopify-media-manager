@@ -136,9 +136,6 @@
                     <button onclick="filterImages('collections')" class="btn btn-outline filter-btn" data-filter="collections">
                         <i class="fas fa-layer-group"></i> Collection Images (<span id="count-collections">0</span>)
                     </button>
-                    <button onclick="filterImages('oversized')" class="btn btn-outline filter-btn" data-filter="oversized">
-                        <i class="fas fa-exclamation-triangle"></i> Oversized Images (<span id="count-oversized">0</span>)
-                    </button>
                     <div id="file-type-filters" class="file-type-filters" style="display: flex; gap: 8px; flex-wrap: wrap; margin-left: 10px; padding-left: 10px; border-left: 1px solid #ddd;">
                         <!-- File type filters will be dynamically added here after analysis -->
                     </div>
@@ -182,10 +179,6 @@
                     <div class="stat-item">
                         <span class="stat-label">Total Size:</span>
                         <span id="total-size" class="stat-value">0 MB</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Oversized Files:</span>
-                        <span id="oversized-count" class="stat-value">0</span>
                     </div>
                 </div>
             </div>
@@ -667,15 +660,13 @@
                             // Update image object with comprehensive analysis results
                             image.size = size;
                             image.sizeFormatted = analysisResult.sizeFormatted;
-                            image.isLarge = analysisResult.oversized;
+                            image.isLarge = size > 1048576; // >1MB
                             image.width = dimensions.width;
                             image.height = dimensions.height;
                             image.type = inferImageType(image.url); // Use URL-based type inference
                             image.aspectRatio = dimensions.width && dimensions.height ? 
                                 (dimensions.width / dimensions.height).toFixed(2) : 'unknown';
                             image.imageType = imageType;
-                            image.oversized = analysisResult.oversized;
-                            image.oversizeReasons = analysisResult.reasons;
                             image.totalPixels = dimensions.width * dimensions.height;
                             
                         } catch (error) {
@@ -733,7 +724,7 @@
                     
                     const largeFiles = data.images.filter(img => img.isLarge).length;
                     if (statusEl) statusEl.textContent = `Analysis complete: ${data.images.length} images processed`;
-                    showNotification(`Image analysis complete! Processed ${data.images.length} images. Found ${largeFiles} oversized files.`, 'success');
+                    showNotification(`Image analysis complete! Processed ${data.images.length} images.`, 'success');
                 } else {
                     throw new Error(data.error || 'Failed to analyze images');
                 }
@@ -815,7 +806,7 @@
                     <p id="analysis-progress-text" style="color: #6c757d; margin: 0; font-family: 'Lexend', sans-serif;">Starting comprehensive image analysis...</p>
                     <div style="margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 8px; font-size: 12px; color: #666;">
                         <p style="margin: 0;"><strong>What we're analyzing:</strong></p>
-                        <p style="margin: 5px 0 0 0;">• File sizes and dimensions<br>• Image optimization opportunities<br>• Oversized image detection</p>
+                        <p style="margin: 5px 0 0 0;">• File sizes and dimensions<br>• Image optimization opportunities</p>
                     </div>
                 </div>
                 <style>
@@ -921,7 +912,6 @@
             
             document.getElementById('total-files').textContent = totalFiles;
             document.getElementById('total-size').textContent = formatFileSize(totalSize);
-            document.getElementById('oversized-count').textContent = largeFiles;
         }
         
         // Helper function to format file size
@@ -1028,14 +1018,6 @@
                 
                 imageContainer.appendChild(img);
                 
-                // Add oversized indicator
-                if (image.oversized) {
-                    const oversizedBadge = document.createElement('div');
-                    oversizedBadge.className = 'oversized-badge';
-                    oversizedBadge.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Oversized';
-                    imageContainer.appendChild(oversizedBadge);
-                }
-                
                 // Create info section
                 const infoSection = document.createElement('div');
                 infoSection.className = 'image-info';
@@ -1080,19 +1062,6 @@
                 }
                 
                 infoSection.appendChild(imageMeta);
-                
-                // Oversized reasons
-                if (image.oversized && image.oversizeReasons && image.oversizeReasons.length > 0) {
-                    const oversizedReasons = document.createElement('div');
-                    oversizedReasons.className = 'oversized-reasons';
-                    oversizedReasons.innerHTML = `
-                        <strong>Issues:</strong>
-                        <ul>
-                            ${image.oversizeReasons.map(reason => `<li>${reason}</li>`).join('')}
-                        </ul>
-                    `;
-                    infoSection.appendChild(oversizedReasons);
-                }
                 
                 // Action buttons
                 const actions = document.createElement('div');
@@ -1149,8 +1118,7 @@
                 all: images.length,
                 theme: images.filter(img => img.category === 'theme').length,
                 products: images.filter(img => img.category === 'products').length,
-                collections: images.filter(img => img.category === 'collections').length,
-                oversized: images.filter(img => img.oversized || img.isLarge).length
+                collections: images.filter(img => img.category === 'collections').length
             };
             
             Object.entries(counts).forEach(([filter, count]) => {
@@ -1179,10 +1147,6 @@
                 case 'collections':
                     filteredImages = images.filter(img => img.category === 'collections');
                     title = 'Collection Images';
-                    break;
-                case 'oversized':
-                    filteredImages = images.filter(img => img.oversized || img.isLarge);
-                    title = 'Oversized Images';
                     break;
             }
             

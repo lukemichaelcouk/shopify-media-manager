@@ -78,7 +78,7 @@ app.post('/api/shopify/exchange-code', async (req, res) => {
 
 1. Click "Download All Media" to fetch all media files from your store
 2. Monitor the progress bar to track download status
-3. View the media list to see file details and identify oversized files
+3. View the media list to see file details and information
 
 ### Uploading Optimized Media
 
@@ -90,7 +90,7 @@ app.post('/api/shopify/exchange-code', async (req, res) => {
 
 ### File Analysis
 
-The app automatically identifies oversized files (>5MB) and highlights them in the media list. These files should be optimized before reuploading.
+The app provides basic file analysis and categorization to help you manage your media files efficiently.
 
 ## File Structure
 

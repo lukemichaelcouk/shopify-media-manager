@@ -501,15 +501,6 @@ body {
     border-bottom: none;
 }
 
-.media-item.oversized {
-    background-color: #fff3cd;
-    border-left: 4px solid #ffc107;
-}
-
-.media-item.oversized:hover {
-    background-color: #ffeaa7;
-}
-
 .media-icon {
     width: 40px;
     height: 40px;
@@ -543,9 +534,7 @@ body {
     color: #495057;
 }
 
-.media-size.oversized {
-    color: #dc3545;
-}
+
 
 /* Stats */
 .stats {
@@ -933,22 +922,7 @@ body {
     transform: scale(0.95);
 }
 
-.oversized-badge {
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    background: linear-gradient(135deg, var(--spree-danger) 0%, #c82333 100%);
-    color: white;
-    padding: 6px 12px;
-    border-radius: 20px;
-    font-size: 0.75rem;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3);
-    z-index: 10;
-}
+
 
 .image-info {
     padding: 1.5rem;
@@ -1007,26 +981,7 @@ body {
     border-color: var(--spree-success) !important;
 }
 
-.oversized-reasons {
-    margin-top: 0.5rem;
-    font-size: 0.8rem;
-}
 
-.oversized-reasons strong {
-    color: var(--spree-danger);
-    display: block;
-    margin-bottom: 0.25rem;
-}
-
-.oversized-reasons ul {
-    margin: 0;
-    padding-left: 1rem;
-    color: var(--spree-text-secondary);
-}
-
-.oversized-reasons li {
-    margin-bottom: 0.25rem;
-}
 
 .no-images {
     text-align: center;
@@ -1273,15 +1228,7 @@ body {
     font-weight: 600;
 }
 
-.oversized-yes {
-    color: var(--spree-danger);
-    font-weight: 600;
-}
 
-.oversized-no {
-    color: var(--spree-success);
-    font-weight: 600;
-}
 
 .url-detail .image-url {
     font-family: 'Courier New', monospace;
@@ -1370,23 +1317,7 @@ body {
     border-color: var(--spree-primary);
 }
 
-/* Special styling for oversized filter button */
-.filter-btn[data-filter="oversized"] {
-    border-color: var(--spree-danger);
-    color: var(--spree-danger);
-}
 
-.filter-btn[data-filter="oversized"]:hover {
-    background: var(--spree-danger);
-    color: white;
-    border-color: var(--spree-danger);
-}
-
-.filter-btn[data-filter="oversized"].active {
-    background: var(--spree-danger);
-    color: white;
-    border-color: var(--spree-danger);
-}
 
 /* SPREE Footer */
 .spree-footer {

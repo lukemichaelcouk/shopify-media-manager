@@ -350,11 +350,9 @@ class ShopifyMediaManager {
     updateStats() {
         const totalFiles = this.mediaFiles.length;
         const totalSize = this.mediaFiles.reduce((sum, file) => sum + (file.fileSize || 0), 0);
-        const oversizedCount = this.mediaFiles.filter(file => file.isOversized).length;
 
         document.getElementById('total-files').textContent = totalFiles;
         document.getElementById('total-size').textContent = this.formatBytes(totalSize);
-        document.getElementById('oversized-count').textContent = oversizedCount;
 
         this.renderMediaList();
     }
@@ -372,7 +370,7 @@ class ShopifyMediaManager {
 
     createMediaItem(file, idx) {
         const item = document.createElement('div');
-        item.className = `media-item ${file.isOversized ? 'oversized' : ''}`;
+        item.className = 'media-item';
         const icon = this.getFileIcon(file.content_type);
         const size = this.formatBytes(file.fileSize || file.size || 0);
         const origin = file.origin ? `<span class="media-origin">${file.origin.replace('_', ' ')}</span>` : '';
@@ -397,8 +395,7 @@ class ShopifyMediaManager {
             <div class="media-info">
                 <div class="media-name">${file.name || file.key}</div>
                 <div class="media-details">
-                    <span class="media-size ${file.isOversized ? 'oversized' : ''}">${size}</span>
-                    ${file.isOversized ? ' - <span style="color: #dc3545;">Oversized</span>' : ''}
+                    <span class="media-size">${size}</span>
                     ${origin}
                 </div>
             </div>
@@ -430,7 +427,6 @@ class ShopifyMediaManager {
         
         mediaItems.forEach(item => {
             const fileName = item.querySelector('.media-name').textContent.toLowerCase();
-            const isOversized = item.classList.contains('oversized');
             
             let show = true;
             
@@ -439,12 +435,8 @@ class ShopifyMediaManager {
                 show = false;
             }
             
-            // Type filter
-            if (filterType === 'oversized' && !isOversized) {
-                show = false;
-            } else if (filterType === 'normal' && isOversized) {
-                show = false;
-            }
+            // Type filter (only 'all' and 'normal' are supported now)
+            // Since we removed oversized functionality, all files are considered normal
             
             item.style.display = show ? 'flex' : 'none';
         });

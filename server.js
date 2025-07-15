@@ -790,13 +790,8 @@ app.post('/api/media/analyze', async (req, res) => {
                     totalPixels: dimensions.width * dimensions.height
                 };
                 
-                // Use image calculator for optimization analysis
-                const optimizationAnalysis = imageCalculator.calculateImageSavings(enhancedImage);
-                
                 return {
-                    ...enhancedImage,
-                    oversized: optimizationAnalysis.totalSavings > 0,
-                    oversizeReasons: optimizationAnalysis.recommendations.map(r => r.description)
+                    ...enhancedImage
                 };
             } catch (error) {
                 console.warn(`Failed to analyze image ${index}:`, error.message);
@@ -834,9 +829,7 @@ app.post('/api/media/analyze', async (req, res) => {
                     type: inferTypeFromUrl(image.url),
                     imageType: 'product',
                     aspectRatio: 'unknown',
-                    totalPixels: 0,
-                    oversized: false,
-                    oversizeReasons: []
+                    totalPixels: 0
                 };
             }
         }));

@@ -1,83 +1,18 @@
 /**
- * Image Optimization Utility
- * Determines if images are oversized based on type-specific limits
+ * Image Utility
+ * Basic image analysis and processing utilities
  */
 
 /**
- * Determines if an image is oversized based on type-specific rules
+ * Analyzes image properties for basic information
  * @param {Object} image - Image object with { id, src, width, height, sizeInBytes, type }
- * @returns {Object} Enhanced image object with oversized analysis
+ * @returns {Object} Enhanced image object with basic analysis
  */
 function analyzeImageSize(image) {
     const { id, src, width, height, sizeInBytes, type } = image;
     
-    // Define limits for each image type
-    const limits = {
-        product: {
-            maxWidth: 2048,
-            maxHeight: 2048,
-            maxSizeBytes: 500 * 1024 // 500KB
-        },
-        collection: {
-            maxWidth: 1024,
-            maxHeight: 1024,
-            maxSizeBytes: 500 * 1024 // 500KB
-        },
-        banner: {
-            maxWidth: 2560,
-            maxHeight: 1440,
-            maxSizeBytes: 1024 * 1024 // 1MB
-        },
-        thumbnail: {
-            maxWidth: 512,
-            maxHeight: 512,
-            maxSizeBytes: 100 * 1024 // 100KB
-        }
-    };
-    
-    // Universal limits
-    const HARD_SIZE_CAP = 2 * 1024 * 1024; // 2MB hard cap
-    const MAX_PIXELS = 5 * 1000 * 1000; // 5 million pixels
-    
-    // Get limits for this image type (default to product if unknown type)
-    const typeLimit = limits[type] || limits.product;
-    
-    const reasons = [];
-    let oversized = false;
-    
-    // Check width
-    if (width > typeLimit.maxWidth) {
-        reasons.push(`Width ${width}px exceeds ${type} limit of ${typeLimit.maxWidth}px`);
-        oversized = true;
-    }
-    
-    // Check height
-    if (height > typeLimit.maxHeight) {
-        reasons.push(`Height ${height}px exceeds ${type} limit of ${typeLimit.maxHeight}px`);
-        oversized = true;
-    }
-    
-    // Check file size against type limit
-    if (sizeInBytes > typeLimit.maxSizeBytes) {
-        const maxSizeKB = Math.round(typeLimit.maxSizeBytes / 1024);
-        const actualSizeKB = Math.round(sizeInBytes / 1024);
-        reasons.push(`File size ${actualSizeKB}KB exceeds ${type} limit of ${maxSizeKB}KB`);
-        oversized = true;
-    }
-    
-    // Check total pixels
-    const totalPixels = width * height;
-    if (totalPixels > MAX_PIXELS) {
-        reasons.push(`Total pixels ${totalPixels.toLocaleString()} exceeds 5 million pixel limit`);
-        oversized = true;
-    }
-    
-    // Check hard file size cap
-    if (sizeInBytes > HARD_SIZE_CAP) {
-        const actualSizeMB = (sizeInBytes / (1024 * 1024)).toFixed(1);
-        reasons.push(`File size ${actualSizeMB}MB exceeds 2MB hard cap`);
-        oversized = true;
-    }
+    // Basic size classification for UI purposes
+    const isLarge = sizeInBytes > 1024 * 1024; // 1MB threshold for "large" classification
     
     return {
         id,
@@ -86,8 +21,7 @@ function analyzeImageSize(image) {
         height,
         sizeInBytes,
         type,
-        oversized,
-        reasons,
+        isLarge,
         // Additional helper properties
         sizeFormatted: formatBytes(sizeInBytes)
     };
@@ -122,24 +56,24 @@ function analyzeBatchImages(images) {
  */
 function getImageSummary(analyzedImages) {
     const total = analyzedImages.length;
-    const oversized = analyzedImages.filter(img => img.oversized).length;
+    const large = analyzedImages.filter(img => img.isLarge).length;
     const totalSizeBytes = analyzedImages.reduce((sum, img) => sum + img.sizeInBytes, 0);
     
     const byType = analyzedImages.reduce((acc, img) => {
         if (!acc[img.type]) {
-            acc[img.type] = { total: 0, oversized: 0 };
+            acc[img.type] = { total: 0, large: 0 };
         }
         acc[img.type].total++;
-        if (img.oversized) {
-            acc[img.type].oversized++;
+        if (img.isLarge) {
+            acc[img.type].large++;
         }
         return acc;
     }, {});
     
     return {
         total,
-        oversized,
-        percentage: total > 0 ? Math.round((oversized / total) * 100) : 0,
+        large,
+        percentage: total > 0 ? Math.round((large / total) * 100) : 0,
         totalSize: formatBytes(totalSizeBytes),
         byType
     };
