@@ -68,8 +68,7 @@ function analyzeImageSize(image) {
     // Check total pixels
     const totalPixels = width * height;
     if (totalPixels > MAX_PIXELS) {
-        const megapixels = (totalPixels / 1000000).toFixed(1);
-        reasons.push(`Total pixels ${megapixels}MP exceeds 5MP limit`);
+        reasons.push(`Total pixels ${totalPixels.toLocaleString()} exceeds 5 million pixel limit`);
         oversized = true;
     }
     
@@ -90,44 +89,8 @@ function analyzeImageSize(image) {
         oversized,
         reasons,
         // Additional helper properties
-        recommendations: oversized ? generateRecommendations(image, typeLimit) : null,
-        sizeFormatted: formatBytes(sizeInBytes),
-        megapixels: (totalPixels / 1000000).toFixed(1)
+        sizeFormatted: formatBytes(sizeInBytes)
     };
-}
-
-/**
- * Generate optimization recommendations for oversized images
- * @param {Object} image - Original image object
- * @param {Object} typeLimit - Limits for the image type
- * @returns {Object} Recommendations object
- */
-function generateRecommendations(image, typeLimit) {
-    const { width, height, sizeInBytes } = image;
-    const recommendations = {};
-    
-    // Calculate recommended dimensions while maintaining aspect ratio
-    const aspectRatio = width / height;
-    
-    if (width > typeLimit.maxWidth || height > typeLimit.maxHeight) {
-        if (aspectRatio > 1) {
-            // Landscape - limit by width
-            recommendations.width = Math.min(width, typeLimit.maxWidth);
-            recommendations.height = Math.round(recommendations.width / aspectRatio);
-        } else {
-            // Portrait or square - limit by height
-            recommendations.height = Math.min(height, typeLimit.maxHeight);
-            recommendations.width = Math.round(recommendations.height * aspectRatio);
-        }
-    }
-    
-    // File size recommendations
-    if (sizeInBytes > typeLimit.maxSizeBytes) {
-        recommendations.maxSizeKB = Math.round(typeLimit.maxSizeBytes / 1024);
-        recommendations.compressionNeeded = true;
-    }
-    
-    return recommendations;
 }
 
 /**

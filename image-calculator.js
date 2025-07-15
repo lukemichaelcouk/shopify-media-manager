@@ -89,38 +89,6 @@ function calculateImageSavings(image) {
     const estimatedOptimizedSize = sizeAfterResize - compressionSavings;
     const totalSavings = resizeSavings + compressionSavings;
     
-    // Generate recommendations
-    const recommendations = [];
-    
-    if (resizeSavings > 0) {
-        recommendations.push({
-            type: 'resize',
-            description: `Resize from ${width}×${height} to ${newWidth}×${newHeight}`,
-            savings: resizeSavings,
-            savingsPercent: Math.round((resizeSavings / originalSize) * 100)
-        });
-    }
-    
-    if (compressionSavings > 0) {
-        recommendations.push({
-            type: 'compression',
-            description: `Apply lossless compression to ${fileType}`,
-            savings: compressionSavings,
-            savingsPercent: Math.round((compressionSavings / originalSize) * 100)
-        });
-    }
-    
-    // Format conversion recommendations
-    if (fileType === 'PNG' && originalSize > 500000) { // > 500KB PNG
-        const webpSavings = originalSize * 0.4; // WebP typically 40% smaller
-        recommendations.push({
-            type: 'format',
-            description: 'Convert PNG to WebP format',
-            savings: webpSavings,
-            savingsPercent: Math.round((webpSavings / originalSize) * 100)
-        });
-    }
-    
     return {
         originalSize,
         estimatedOptimizedSize: Math.round(estimatedOptimizedSize),
@@ -131,7 +99,7 @@ function calculateImageSavings(image) {
         newDimensions: { width: newWidth, height: newHeight },
         needsResize: resizeRatio < 1,
         compressionRatio,
-        recommendations
+        recommendations: []
     };
 }
 

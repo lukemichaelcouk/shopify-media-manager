@@ -27,7 +27,8 @@ const SHOPIFY_SCOPES = 'read_products,write_products,read_themes,write_themes';
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' })); // Increase JSON payload limit
+app.use(express.urlencoded({ limit: '50mb', extended: true })); // Increase URL-encoded payload limit
 
 // Shopify OAuth callback endpoint (MUST be before static file serving)
 app.get('/auth/callback', async (req, res) => {
@@ -69,6 +70,53 @@ app.get('/auth/callback', async (req, res) => {
                 // Auto-redirect after 3 seconds
                 setTimeout(() => {
                     window.location.href = 'https://app.wearespree.com?shop=${shop}&token=${access_token}';
+                }, 3000);
+            </script>
+        </body>
+        </html>`;
+        
+        res.send(successPage);
+    } catch (error) {
+        console.error('OAuth callback error:', error.response ? error.response.data : error.message);
+        res.status(500).send('Failed to complete authentication: ' + (error.response ? JSON.stringify(error.response.data) : error.message));
+    }
+});
+
+// Shopify OAuth token exchange endpoint (fallback for local development)
+app.post('/api/shopify/exchange-code', async (req, res) => {
+    const { code, shop } = req.body;
+    if (!code || !shop) {
+        return res.status(400).json({ error: 'Missing code or shop' });
+    }
+    try {
+        const client_id = process.env.SHOPIFY_API_KEY;
+        const client_secret = process.env.SHOPIFY_API_SECRET;
+        const tokenUrl = `https://${shop}/admin/oauth/access_token`;
+        const response = await axios.post(tokenUrl, {
+            client_id,
+            client_secret,
+            code,
+            grant_type: 'authorization_code',
+            redirect_uri: `${baseUrl}/auth/callback`
+        });
+        
+        const { access_token } = response.data;
+        const successPage = `<!DOCTYPE html>
+        <html>
+        <head>
+            <title>Authentication Successful</title>
+            <style>
+                body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+                .success { color: #28a745; }
+                .loading { display: none; }
+            </style>
+        </head>
+        <body>
+            <h1 class="success">Authentication Successful!</h1>
+            <p>You can now close this window.</p>
+            <script>
+                setTimeout(() => {
+                    window.close();
                 }, 3000);
             </script>
         </body>
@@ -660,7 +708,7 @@ app.post('/api/media/fetch', async (req, res) => {
     });
 });
 
-// --- /api/media/analyze: Re-analyze images with metadata (size, dimensions) ---
+// --- /api/media/analyze: Re-analyze images with metadata (size, dimensions, optimization analysis) ---
 app.post('/api/media/analyze', async (req, res) => {
     const { accessToken, shop, images } = req.body;
     console.log('Media analyze API called for shop:', shop, 'with', images ? images.length : 0, 'images');
@@ -682,26 +730,113 @@ app.post('/api/media/analyze', async (req, res) => {
                 const dimensions = (sizeOf.imageSize || sizeOf.default || sizeOf)(buffer);
                 const sizeInBytes = buffer.length;
                 
+                // Determine image type based on category
+                let imageType = 'product'; // default
+                if (image.category === 'collections') {
+                    imageType = 'collection';
+                } else if (image.category === 'theme') {
+                    // For theme images, try to guess type from filename/path
+                    const url = image.url.toLowerCase();
+                    if (url.includes('banner') || url.includes('hero') || url.includes('slider')) {
+                        imageType = 'banner';
+                    } else if (url.includes('thumb') || url.includes('icon') || url.includes('logo')) {
+                        imageType = 'thumbnail';
+                    } else {
+                        imageType = 'banner'; // default for theme images
+                    }
+                }
+                
                 // Calculate if image is "large" (>1MB)
                 const isLarge = sizeInBytes > 1048576;
                 
-                return {
+                // Calculate aspect ratio
+                const aspectRatio = dimensions.width && dimensions.height ? 
+                    (dimensions.width / dimensions.height).toFixed(2) : 'unknown';
+                
+                // Infer file type from URL extension
+                const inferTypeFromUrl = (url) => {
+                    const match = url.match(/\.([^.?]+)(?:\?|$)/);
+                    if (match) {
+                        const extension = match[1].toLowerCase();
+                        const typeMap = {
+                            'jpg': 'JPEG',
+                            'jpeg': 'JPEG',
+                            'png': 'PNG',
+                            'gif': 'GIF',
+                            'webp': 'WebP',
+                            'svg': 'SVG',
+                            'bmp': 'BMP',
+                            'tiff': 'TIFF',
+                            'tif': 'TIFF',
+                            'ico': 'ICO',
+                            'avif': 'AVIF'
+                        };
+                        return typeMap[extension] || extension.toUpperCase();
+                    }
+                    return 'UNKNOWN';
+                };
+                
+                // Enhanced image analysis object
+                const enhancedImage = {
                     ...image,
                     size: sizeInBytes,
                     sizeFormatted: formatFileSize(sizeInBytes),
                     width: dimensions.width,
                     height: dimensions.height,
-                    isLarge: isLarge
+                    isLarge: isLarge,
+                    type: dimensions.type ? dimensions.type.toUpperCase() : inferTypeFromUrl(image.url),
+                    imageType: imageType,
+                    aspectRatio: aspectRatio,
+                    totalPixels: dimensions.width * dimensions.height
+                };
+                
+                // Use image calculator for optimization analysis
+                const optimizationAnalysis = imageCalculator.calculateImageSavings(enhancedImage);
+                
+                return {
+                    ...enhancedImage,
+                    oversized: optimizationAnalysis.totalSavings > 0,
+                    oversizeReasons: optimizationAnalysis.recommendations.map(r => r.description)
                 };
             } catch (error) {
                 console.warn(`Failed to analyze image ${index}:`, error.message);
+                
+                // Infer file type from URL extension even on error
+                const inferTypeFromUrl = (url) => {
+                    const match = url.match(/\.([^.?]+)(?:\?|$)/);
+                    if (match) {
+                        const extension = match[1].toLowerCase();
+                        const typeMap = {
+                            'jpg': 'JPEG',
+                            'jpeg': 'JPEG',
+                            'png': 'PNG',
+                            'gif': 'GIF',
+                            'webp': 'WebP',
+                            'svg': 'SVG',
+                            'bmp': 'BMP',
+                            'tiff': 'TIFF',
+                            'tif': 'TIFF',
+                            'ico': 'ICO',
+                            'avif': 'AVIF'
+                        };
+                        return typeMap[extension] || extension.toUpperCase();
+                    }
+                    return 'UNKNOWN';
+                };
+                
                 return {
                     ...image,
                     size: 0,
                     sizeFormatted: 'Unknown',
                     width: 0,
                     height: 0,
-                    isLarge: false
+                    isLarge: false,
+                    type: inferTypeFromUrl(image.url),
+                    imageType: 'product',
+                    aspectRatio: 'unknown',
+                    totalPixels: 0,
+                    oversized: false,
+                    oversizeReasons: []
                 };
             }
         }));
@@ -955,300 +1090,34 @@ function validateImageUrl(url) {
     }
 }
 
-// Helper to fetch paginated Shopify endpoints with cache-busting and exponential backoff
-// Hardened: only 1 retry (2 total attempts), no exponential backoff
-async function fetchAllWithBackoff(endpoint, key, accessToken, shop, maxRetries = 1) {
-    let results = [];
-    let page = 1;
-    let hasMore = true;
-    let partial = false;
-    while (hasMore) {
-        let retries = 0;
-        let delay = 1000;
-        while (retries < 2) { // Only 1 retry
-            try {
-                const resp = await axios.get(`https://${shop}/admin/api/2023-10${endpoint}`, {
-                    headers: {
-                        'X-Shopify-Access-Token': accessToken,
-                        'Cache-Control': 'no-cache',
-                        'Pragma': 'no-cache'
-                    },
-                    params: { limit: 250, page }
-                });
-                const items = resp.data[key] || [];
-                results = results.concat(items);
-                hasMore = items.length === 250;
-                page++;
-                // Memory check after each page
-                const mem = process.memoryUsage();
-                if (mem.rss > 500 * 1024 * 1024) {
-                    console.error('[Memory] Exceeded 500MB RSS, aborting to prevent server kill. Returning partial results.');
-                    partial = true;
-                    hasMore = false;
-                    break;
-                }
-                break;
-            } catch (err) {
-                if (err.response && err.response.status === 429) {
-                    retries++;
-                    if (retries >= 2) {
-                        console.warn(`[429] Skipping page after 1 retry:`, endpoint);
-                        break;
-                    }
-                    await new Promise(res => setTimeout(res, delay));
-                } else {
-                    console.error(`[API Error] Fetching ${endpoint}:`, err.message);
-                    hasMore = false;
-                    break;
-                }
-            }
-        }
-        if (retries === 2) {
-            partial = true;
-            console.error(`[RateLimit] Max retries reached for ${endpoint}. Partial results returned.`);
-            break;
-        }
+// Validate Shopify access token
+app.post('/api/validate-token', async (req, res) => {
+    const { shop, accessToken } = req.body;
+    if (!shop || !accessToken) {
+        return res.status(400).json({ error: 'Missing shop or accessToken', valid: false });
     }
-    return { results, partial };
-}
-
-// Utility: limit concurrency for async functions
-function withConcurrencyLimit(limit, items, asyncFn) {
-    let idx = 0;
-    let active = 0;
-    let results = [];
-    return new Promise((resolve, reject) => {
-        function next() {
-            if (idx === items.length && active === 0) return resolve(results);
-            while (active < limit && idx < items.length) {
-                const i = idx++;
-                active++;
-                asyncFn(items[i], i)
-                    .then(r => results[i] = r)
-                    .catch(e => results[i] = null)
-                    .finally(() => {
-                        active--;
-                        next();
-                    });
-            }
-        }
-        next();
-    });
-}
-
-// Global catch for unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-    process.exit(1);
-});
-
-// Utility: Check if asset is an image by extension
-function isImageAsset(key) {
-  return /\.(jpe?g|png|webp|gif|svg)$/i.test(key);
-}
-
-// --- /api/media/theme-assets: Return all theme image asset URLs (simple, no detail fetch) ---
-app.post('/api/media/theme-assets', async (req, res) => {
-    const { accessToken, shop } = req.body;
-    if (!accessToken || !shop) return res.status(400).json({ error: 'Missing accessToken or shop' });
-    const apiBase = `https://${shop}/admin/api/2023-10`;
-    const headers = { 'X-Shopify-Access-Token': accessToken };
-    try {
-        // Get main theme ID
-        const themesResp = await axios.get(`${apiBase}/themes.json`, { headers });
-        const mainTheme = Array.isArray(themesResp.data.themes) ? themesResp.data.themes.find(t => t.role === 'main') : null;
-        if (!mainTheme) return res.json({ images: [] });
-        // Get all assets for the main theme
-        const assetsResp = await axios.get(`${apiBase}/themes/${mainTheme.id}/assets.json`, { headers });
-        const assets = Array.isArray(assetsResp.data.assets) ? assetsResp.data.assets : [];
-        
-        // Filter for image assets
-        const imageAssets = assets.filter(a => a.key && /\.(jpe?g|png|webp|gif|svg)$/i.test(a.key));
-        
-        const imageUrls = [];
-        
-        // For each image asset, fetch its metadata to get the public_url
-        for (const asset of imageAssets) {
-            try {
-                // Fetch individual asset metadata to get public_url
-                const assetDetailResp = await axios.get(
-                    `${apiBase}/themes/${mainTheme.id}/assets/${asset.key}`, 
-                    { headers }
-                );
-                
-                const assetDetail = assetDetailResp.data.asset;
-                
-                if (assetDetail.public_url) {
-                    imageUrls.push(assetDetail.public_url);
-                } else {
-                    console.warn(`Theme asset ${asset.key} has no public_url, skipping`);
-                }
-            } catch (assetError) {
-                console.warn(`Failed to fetch metadata for theme asset ${asset.key}:`, assetError.message);
-            }
-        }
-        
-        res.json({ images: imageUrls });
-    } catch (err) {
-        console.error('Theme assets error:', err.message);
-        res.status(500).json({ error: 'Failed to fetch theme image assets' });
-    }
-});
-
-// --- /api/media/products: Return all product image URLs (simple) ---
-app.post('/api/media/products', async (req, res) => {
-    const { accessToken, shop } = req.body;
-    if (!accessToken || !shop) return res.status(400).json({ error: 'Missing accessToken or shop' });
-    const apiBase = `https://${shop}/admin/api/2023-10`;
-    const headers = { 'X-Shopify-Access-Token': accessToken };
-    try {
-        let nextUrl = `${apiBase}/products.json?fields=id&limit=250`;
-        let productIds = [];
-        while (nextUrl) {
-            const resp = await axios.get(nextUrl, { headers });
-            if (Array.isArray(resp.data.products)) {
-                productIds.push(...resp.data.products.map(p => p.id));
-                const link = resp.headers['link'];
-                if (link && link.includes('rel="next"')) {
-                    const match = link.match(/<([^>]+)>; rel="next"/);
-                    nextUrl = match ? match[1] : null;
-                } else {
-                    nextUrl = null;
-                }
-            } else {
-                nextUrl = null;
-            }
-        }
-        let imageUrls = [];
-        for (const pid of productIds) {
-            const url = `${apiBase}/products/${pid}/images.json?fields=src`;
-            try {
-                const resp = await axios.get(url, { headers });
-                if (Array.isArray(resp.data.images)) {
-                    imageUrls.push(...resp.data.images.map(img => img.src).filter(Boolean));
-                }
-            } catch (e) {}
-        }
-        res.json({ images: imageUrls });
-    } catch (e) {
-        console.error('Products error:', e.message);
-        res.json({ images: [] });
-    }
-});
-
-// --- /api/media/collections: Return all collection image URLs (with improved logic) ---
-app.post('/api/media/collections', async (req, res) => {
-    const { accessToken, shop } = req.body;
-    if (!accessToken || !shop) return res.status(400).json({ error: 'Missing accessToken or shop' });
-    const apiBase = `https://${shop}/admin/api/2023-10`;
-    const headers = { 'X-Shopify-Access-Token': accessToken };
     
     try {
-        console.log('Collections API called for shop:', shop);
-        const collectionImages = [];
-        
-        // Fetch custom collections
-        console.log('Fetching custom collections...');
-        let nextUrl = `${apiBase}/custom_collections.json?limit=250`;
-        while (nextUrl) {
-            try {
-                const resp = await axios.get(nextUrl, { headers });
-                console.log('Custom collections response status:', resp.status);
-                
-                if (resp.data.custom_collections && Array.isArray(resp.data.custom_collections)) {
-                    console.log(`Found ${resp.data.custom_collections.length} custom collections`);
-                    
-                    for (const collection of resp.data.custom_collections) {
-                        if (collection.image && collection.image.src) {
-                            collectionImages.push(collection.image.src);
-                        }
-                    }
-                    
-                    // Check for pagination
-                    const link = resp.headers['link'];
-                    if (link && link.includes('rel="next"')) {
-                        const match = link.match(/<([^>]+)>; rel="next"/);
-                        nextUrl = match ? match[1] : null;
-                    } else {
-                        nextUrl = null;
-                    }
-                } else {
-                    console.log('No custom collections data in response:', resp.data);
-                    nextUrl = null;
-                }
-            } catch (error) {
-                console.error('Error fetching custom collections:', error.message);
-                if (error.response) {
-                    console.error('Response data:', error.response.data);
-                    console.error('Response status:', error.response.status);
-                }
-                nextUrl = null;
-            }
-        }
-        
-        // Fetch smart collections
-        console.log('Fetching smart collections...');
-        nextUrl = `${apiBase}/smart_collections.json?limit=250`;
-        while (nextUrl) {
-            try {
-                const resp = await axios.get(nextUrl, { headers });
-                console.log('Smart collections response status:', resp.status);
-                
-                if (resp.data.smart_collections && Array.isArray(resp.data.smart_collections)) {
-                    console.log(`Found ${resp.data.smart_collections.length} smart collections`);
-                    
-                    for (const collection of resp.data.smart_collections) {
-                        if (collection.image && collection.image.src) {
-                            collectionImages.push(collection.image.src);
-                        }
-                    }
-                    
-                    // Check for pagination
-                    const link = resp.headers['link'];
-                    if (link && link.includes('rel="next"')) {
-                        const match = link.match(/<([^>]+)>; rel="next"/);
-                        nextUrl = match ? match[1] : null;
-                    } else {
-                        nextUrl = null;
-                    }
-                } else {
-                    console.log('No smart collections data in response:', resp.data);
-                    nextUrl = null;
-                }
-            } catch (error) {
-                console.error('Error fetching smart collections:', error.message);
-                if (error.response) {
-                    console.error('Response data:', error.response.data);
-                    console.error('Response status:', error.response.status);
-                }
-                nextUrl = null;
-            }
-        }
-        
-        console.log(`Total collection images found: ${collectionImages.length}`);
-        
-        if (collectionImages.length === 0) {
-            console.log('ℹ️ No collection images found. This is normal - many stores don\'t assign images to collections.');
-            console.log('📊 Collections summary:', {
-                custom_collections_count: collectionImages.filter(img => img.includes('custom')).length,
-                smart_collections_count: collectionImages.filter(img => img.includes('smart')).length,
-                note: 'Collections exist but have no assigned featured images'
-            });
-        }
-        
-        res.json({ 
-            images: collectionImages,
-            summary: {
-                collections_found: collectionImages.length,
-                message: collectionImages.length === 0 ? 
-                    'No collection images found. Collections exist but have no assigned featured images.' : 
-                    `Found ${collectionImages.length} collection images`
-            }
+        // Try to fetch shop info to validate the token
+        const response = await axios.get(`https://${shop}/admin/api/2023-10/shop.json`, {
+            headers: { 'X-Shopify-Access-Token': accessToken },
+            timeout: 10000
         });
         
-    } catch (e) {
-        console.error('Collections error:', e.message);
-        res.status(500).json({ error: 'Failed to fetch collection images', details: e.message });
+        if (response.data && response.data.shop) {
+            res.json({ valid: true, shop: response.data.shop });
+        } else {
+            res.json({ valid: false, error: 'Invalid response from Shopify' });
+        }
+    } catch (error) {
+        console.error('Token validation error:', error.response?.data || error.message);
+        
+        // Check if it's an authentication error
+        if (error.response?.status === 401 || error.response?.status === 403) {
+            res.json({ valid: false, error: 'Invalid or expired token' });
+        } else {
+            res.json({ valid: false, error: 'Token validation failed' });
+        }
     }
 });
 
@@ -1277,30 +1146,7 @@ app.post('/api/debug/collections', async (req, res) => {
         
     } catch (e) {
         console.error('DEBUG: Collections error:', e.message);
-        res.status(500).json({ error: 'Failed to fetch debug collections', details: e.message });
-    }
-});
-
-// Token validation endpoint
-app.post('/api/validate-token', async (req, res) => {
-    const { shop, accessToken } = req.body;
-    console.log('Token validation called for shop:', shop, 'with token:', accessToken ? 'present' : 'missing');
-    
-    if (!shop || !accessToken) {
-        console.log('Missing shop or accessToken in validation request');
-        return res.status(400).json({ error: 'Missing shop or accessToken' });
-    }
-    try {
-        console.log('Validating token for shop:', shop);
-        // Try to fetch shop info to validate the token
-        const response = await axios.get(`https://${shop}/admin/api/2023-10/shop.json`, {
-            headers: { 'X-Shopify-Access-Token': accessToken }
-        });
-        console.log('Token validation successful for shop:', shop);
-        res.json({ valid: true, shop: response.data.shop });
-    } catch (err) {
-        console.error('Token validation failed for shop:', shop, 'Error:', err.response?.data || err.message);
-        res.json({ valid: false, error: err.response?.data || err.message });
+        res.status(500).json({ error: 'Failed to fetch collections' });
     }
 });
 
@@ -1424,16 +1270,68 @@ app.post('/api/optimization/calculate', async (req, res) => {
         return res.status(400).json({ error: 'Missing or invalid images array' });
     }
     
+    // Limit the number of images to process to avoid 413 errors
+    const MAX_IMAGES = 100;
+    const imagesToProcess = images.slice(0, MAX_IMAGES);
+    
     try {
-        console.log(`Calculating optimization savings for ${images.length} images`);
+        console.log(`Calculating optimization savings for ${imagesToProcess.length} images (limited from ${images.length})`);
         
-        const optimizationResult = imageCalculator.calculateTotalSavings(images);
+        // Process images in smaller chunks to avoid memory issues
+        const CHUNK_SIZE = 25;
+        const chunks = [];
         
-        console.log(`Optimization calculation complete: ${optimizationResult.summary.formattedSavings} potential savings`);
+        for (let i = 0; i < imagesToProcess.length; i += CHUNK_SIZE) {
+            chunks.push(imagesToProcess.slice(i, i + CHUNK_SIZE));
+        }
+        
+        let totalOptimizationResult = {
+            summary: {
+                totalImages: 0,
+                optimizableImages: 0,
+                totalSavings: 0,
+                totalSavingsPercent: 0,
+                compressionSavings: 0,
+                resizeSavings: 0,
+                resizableImages: 0,
+                formattedSavings: '0 MB'
+            },
+            images: []
+        };
+        
+        // Process each chunk
+        for (const chunk of chunks) {
+            const chunkResult = imageCalculator.calculateTotalSavings(chunk);
+            
+            // Merge results
+            totalOptimizationResult.summary.totalImages += chunkResult.summary.totalImages;
+            totalOptimizationResult.summary.optimizableImages += chunkResult.summary.optimizableImages;
+            totalOptimizationResult.summary.totalSavings += chunkResult.summary.totalSavings;
+            totalOptimizationResult.summary.compressionSavings += chunkResult.summary.compressionSavings;
+            totalOptimizationResult.summary.resizeSavings += chunkResult.summary.resizeSavings;
+            totalOptimizationResult.summary.resizableImages += chunkResult.summary.resizableImages;
+            totalOptimizationResult.images.push(...chunkResult.images);
+        }
+        
+        // Recalculate percentages and formatted strings
+        if (totalOptimizationResult.summary.totalImages > 0) {
+            totalOptimizationResult.summary.totalSavingsPercent = Math.round(
+                (totalOptimizationResult.summary.totalSavings / 
+                 totalOptimizationResult.images.reduce((sum, img) => sum + (img.originalSize || 0), 0)) * 100
+            );
+            
+            const totalSavingsMB = totalOptimizationResult.summary.totalSavings / (1024 * 1024);
+            totalOptimizationResult.summary.formattedSavings = `${totalSavingsMB.toFixed(2)} MB`;
+        }
+        
+        console.log(`Optimization calculation complete: ${totalOptimizationResult.summary.formattedSavings} potential savings`);
         
         res.json({
             success: true,
-            optimization: optimizationResult
+            optimization: totalOptimizationResult,
+            processed: imagesToProcess.length,
+            total: images.length,
+            limited: images.length > MAX_IMAGES
         });
         
     } catch (error) {

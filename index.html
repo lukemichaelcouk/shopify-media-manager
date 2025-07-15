@@ -42,6 +42,8 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <!-- Shopify App Bridge -->
     <script src="https://unpkg.com/@shopify/app-bridge@3"></script>
+    <!-- Image Optimizer for client-side analysis -->
+    <script src="image-optimizer.js"></script>
 </head>
 <body>
     <div class="container">
@@ -189,85 +191,6 @@
             </div>
         </section>
 
-        <!-- Optimization Section -->
-        <section id="optimization-section" class="section hidden">
-            <div class="card">
-                <h2><i class="fas fa-compress-arrows-alt"></i> Optimization Savings</h2>
-                
-                <div id="optimization-loading" class="optimization-loading hidden">
-                    <div class="loading-spinner"></div>
-                    <p>Calculating potential savings...</p>
-                </div>
-                
-                <div id="optimization-results" class="optimization-results hidden">
-                    <div class="savings-summary">
-                        <div class="savings-card total-savings">
-                            <div class="savings-icon">💾</div>
-                            <div class="savings-content">
-                                <h3>Total Potential Savings</h3>
-                                <div class="savings-amount" id="total-savings-amount">0 MB</div>
-                                <div class="savings-percent" id="total-savings-percent">0%</div>
-                                <div class="savings-detail">
-                                    <span id="optimizable-count">0</span> images can be optimized
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="savings-breakdown">
-                            <div class="savings-card compression-savings">
-                                <div class="savings-icon">🗜️</div>
-                                <div class="savings-content">
-                                    <h4>Compression</h4>
-                                    <div class="savings-amount" id="compression-savings">0 MB</div>
-                                    <div class="savings-detail">Lossless optimization</div>
-                                </div>
-                            </div>
-                            
-                            <div class="savings-card resize-savings">
-                                <div class="savings-icon">📐</div>
-                                <div class="savings-content">
-                                    <h4>Resizing</h4>
-                                    <div class="savings-amount" id="resize-savings">0 MB</div>
-                                    <div class="savings-detail"><span id="resizable-count">0</span> oversized images</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="optimization-settings">
-                        <h4><i class="fas fa-cog"></i> Optimization Settings</h4>
-                        <div class="settings-grid">
-                            <div class="setting-item">
-                                <label>Max Product Image Size:</label>
-                                <span>2048 × 2048px</span>
-                            </div>
-                            <div class="setting-item">
-                                <label>Max Banner Size:</label>
-                                <span>2400 × 1200px</span>
-                            </div>
-                            <div class="setting-item">
-                                <label>Max Collection Image:</label>
-                                <span>1920 × 1080px</span>
-                            </div>
-                            <div class="setting-item">
-                                <label>Compression Quality:</label>
-                                <span>JPEG: 85%, WebP: 80%</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="optimization-actions">
-                        <button id="view-optimization-details" class="btn btn-info">
-                            <i class="fas fa-list"></i> View Detailed Breakdown
-                        </button>
-                        <button id="download-optimization-report" class="btn btn-secondary">
-                            <i class="fas fa-download"></i> Download Report
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </section>
-
         <!-- Notifications -->
         <div id="notifications" class="notifications"></div>
     </div>
@@ -336,6 +259,26 @@
         // Utility function to extract file extension from URL, stripping query strings and fragments
         function getFileExtension(url) {
             return url.split('.').pop().split('?')[0].split('#')[0].toLowerCase();
+        }
+
+        // Utility function to infer image type from URL
+        function inferImageType(url) {
+            const extension = getFileExtension(url);
+            const imageExtensions = {
+                'jpg': 'JPEG',
+                'jpeg': 'JPEG',
+                'png': 'PNG',
+                'gif': 'GIF',
+                'webp': 'WebP',
+                'svg': 'SVG',
+                'bmp': 'BMP',
+                'tiff': 'TIFF',
+                'tif': 'TIFF',
+                'ico': 'ICO',
+                'avif': 'AVIF'
+            };
+            
+            return imageExtensions[extension] || extension.toUpperCase() || 'UNKNOWN';
         }
 
         // Check for URL parameters on page load
@@ -619,6 +562,11 @@
                     if (statusEl) statusEl.textContent = `Loaded ${data.images.length} images`;
                     
                     showNotification(`Successfully loaded ${data.images.length} images`, 'success');
+                    
+                    // Automatically start comprehensive analysis after a short delay
+                    setTimeout(() => {
+                        reAnalyzeImages();
+                    }, 1000);
                 } else {
                     throw new Error(data.error || 'Failed to fetch images');
                 }
@@ -643,27 +591,125 @@
         }
 
         async function reAnalyzeImages() {
-            console.log('🔍 Re-analyzing images...');
+            console.log('🔍 Re-analyzing images with comprehensive analysis...');
             
             if (!imageSession.load() || !imageSession.isValid(window.shopifyApp.shop)) {
                 showNotification('No images loaded. Please fetch images first.', 'error');
                 return;
             }
             
+            // Check if ImageOptimizer is available
+            if (!window.ImageOptimizer || !window.ImageOptimizer.analyzeImageSize) {
+                console.error('ImageOptimizer not loaded');
+                showNotification('Image analysis tools not loaded. Please refresh the page.', 'error');
+                return;
+            }
+            
             const statusEl = document.getElementById('images-status');
             const analyzeBtn = document.getElementById('fetch-metadata-btn');
+            const images = imageSession.images;
             
             try {
-                if (statusEl) statusEl.textContent = 'Re-analyzing images...';
-                if (analyzeBtn) analyzeBtn.disabled = true;
+                // Show enhanced UI during analysis
+                disableInterface();
                 
+                if (statusEl) statusEl.textContent = 'Starting comprehensive image analysis...';
+                if (analyzeBtn) {
+                    analyzeBtn.disabled = true;
+                    analyzeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Analyzing...';
+                }
+                
+                // First, do client-side analysis with ImageOptimizer
+                let processed = 0;
+                const totalImages = images.length;
+                
+                // Process images in batches for better performance
+                const batchSize = 5;
+                for (let i = 0; i < totalImages; i += batchSize) {
+                    const batch = images.slice(i, i + batchSize);
+                    
+                    await Promise.all(batch.map(async (image, batchIndex) => {
+                        const index = i + batchIndex;
+                        
+                        try {
+                            // Get file size and dimensions in parallel
+                            const [size, dimensions] = await Promise.all([
+                                getFileSize(image.url),
+                                getImageDimensions(image.url)
+                            ]);
+                            
+                            // Determine image type based on category
+                            let imageType = 'product'; // default
+                            if (image.category === 'collections') {
+                                imageType = 'collection';
+                            } else if (image.category === 'theme') {
+                                // For theme images, try to guess type from filename/path
+                                const url = image.url.toLowerCase();
+                                if (url.includes('banner') || url.includes('hero') || url.includes('slider')) {
+                                    imageType = 'banner';
+                                } else if (url.includes('thumb') || url.includes('icon') || url.includes('logo')) {
+                                    imageType = 'thumbnail';
+                                } else {
+                                    imageType = 'banner'; // default for theme images
+                                }
+                            }
+                            
+                            // Use the image optimizer to analyze the image
+                            const analysisResult = window.ImageOptimizer.analyzeImageSize({
+                                id: image.url,
+                                src: image.url,
+                                width: dimensions.width,
+                                height: dimensions.height,
+                                sizeInBytes: size,
+                                type: imageType
+                            });
+                            
+                            // Update image object with comprehensive analysis results
+                            image.size = size;
+                            image.sizeFormatted = analysisResult.sizeFormatted;
+                            image.isLarge = analysisResult.oversized;
+                            image.width = dimensions.width;
+                            image.height = dimensions.height;
+                            image.type = inferImageType(image.url); // Use URL-based type inference
+                            image.aspectRatio = dimensions.width && dimensions.height ? 
+                                (dimensions.width / dimensions.height).toFixed(2) : 'unknown';
+                            image.imageType = imageType;
+                            image.oversized = analysisResult.oversized;
+                            image.oversizeReasons = analysisResult.reasons;
+                            image.totalPixels = dimensions.width * dimensions.height;
+                            
+                        } catch (error) {
+                            console.warn(`Failed to analyze image ${index}:`, error);
+                            // Keep original "Not checked" values
+                        }
+                        
+                        processed++;
+                    }));
+                    
+                    // Update progress
+                    const progress = Math.round((processed / totalImages) * 100);
+                    if (statusEl) statusEl.textContent = `Analyzing images... ${progress}% (${processed}/${totalImages})`;
+                    
+                    // Update overlay progress text if it exists
+                    const progressText = document.getElementById('analysis-progress-text');
+                    if (progressText) {
+                        progressText.textContent = `Analyzed ${processed} of ${totalImages} images (${progress}%)`;
+                    }
+                    
+                    // Small delay between batches to prevent browser freezing
+                    if (i + batchSize < totalImages) {
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                }
+                
+                // Then do server-side analysis for additional metadata
                 const response = await fetch('/api/media/analyze', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         shop: window.shopifyApp.shop,
                         accessToken: window.shopifyApp.accessToken,
-                        images: imageSession.images
+                        images: images
                     })
                 });
                 
@@ -682,8 +728,12 @@
                     updateStats(data.images);
                     updateFilterCounts(data.images);
                     
+                    // Create file type filters based on analyzed images
+                    createFileTypeFilters(data.images);
+                    
+                    const largeFiles = data.images.filter(img => img.isLarge).length;
                     if (statusEl) statusEl.textContent = `Analysis complete: ${data.images.length} images processed`;
-                    showNotification('Image analysis completed', 'success');
+                    showNotification(`Image analysis complete! Processed ${data.images.length} images. Found ${largeFiles} oversized files.`, 'success');
                 } else {
                     throw new Error(data.error || 'Failed to analyze images');
                 }
@@ -693,10 +743,176 @@
                 if (statusEl) statusEl.textContent = 'Error analyzing images';
                 showNotification(`Error: ${error.message}`, 'error');
             } finally {
-                if (analyzeBtn) analyzeBtn.disabled = false;
+                // Re-enable interface
+                enableInterface();
+                
+                if (analyzeBtn) {
+                    analyzeBtn.disabled = false;
+                    analyzeBtn.innerHTML = '<i class="fas fa-info-circle"></i> Re-analyze Images';
+                }
             }
         }
-
+        
+        // Helper functions for comprehensive analysis functionality
+        
+        // Helper functions to disable/enable interface during analysis
+        function disableInterface() {
+            // Disable all buttons
+            const buttons = document.querySelectorAll('button');
+            buttons.forEach(btn => {
+                if (!btn.disabled) {
+                    btn.setAttribute('data-was-enabled', 'true');
+                    btn.disabled = true;
+                }
+            });
+            
+            // Disable all inputs
+            const inputs = document.querySelectorAll('input, select, textarea');
+            inputs.forEach(input => {
+                if (!input.disabled) {
+                    input.setAttribute('data-was-enabled', 'true');
+                    input.disabled = true;
+                }
+            });
+            
+            // Add analyzing overlay to prevent clicks
+            const overlay = document.createElement('div');
+            overlay.id = 'analyzing-overlay';
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(49, 42, 114, 0.3);
+                z-index: 9999;
+                cursor: not-allowed;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                backdrop-filter: blur(2px);
+            `;
+            overlay.innerHTML = `
+                <div style="
+                    background: white;
+                    padding: 30px;
+                    border-radius: 16px;
+                    box-shadow: 0 8px 25px rgba(49, 42, 114, 0.15);
+                    text-align: center;
+                    max-width: 400px;
+                    margin: 20px;
+                ">
+                    <div style="
+                        width: 40px;
+                        height: 40px;
+                        border: 4px solid #f3f3f3;
+                        border-top: 4px solid #312A72;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                        margin: 0 auto 20px;
+                    "></div>
+                    <h3 style="color: #312A72; margin-bottom: 10px; font-family: 'Lexend', sans-serif;">Analyzing Images</h3>
+                    <p id="analysis-progress-text" style="color: #6c757d; margin: 0; font-family: 'Lexend', sans-serif;">Starting comprehensive image analysis...</p>
+                    <div style="margin-top: 15px; padding: 10px; background: #f8f9fa; border-radius: 8px; font-size: 12px; color: #666;">
+                        <p style="margin: 0;"><strong>What we're analyzing:</strong></p>
+                        <p style="margin: 5px 0 0 0;">• File sizes and dimensions<br>• Image optimization opportunities<br>• Oversized image detection</p>
+                    </div>
+                </div>
+                <style>
+                    @keyframes spin {
+                        0% { transform: rotate(0deg); }
+                        100% { transform: rotate(360deg); }
+                    }
+                </style>
+            `;
+            document.body.appendChild(overlay);
+        }
+        
+        function enableInterface() {
+            // Re-enable buttons that were previously enabled
+            const buttons = document.querySelectorAll('button[data-was-enabled="true"]');
+            buttons.forEach(btn => {
+                btn.disabled = false;
+                btn.removeAttribute('data-was-enabled');
+            });
+            
+            // Re-enable inputs that were previously enabled
+            const inputs = document.querySelectorAll('input[data-was-enabled="true"], select[data-was-enabled="true"], textarea[data-was-enabled="true"]');
+            inputs.forEach(input => {
+                input.disabled = false;
+                input.removeAttribute('data-was-enabled');
+            });
+            
+            // Remove analyzing overlay
+            const overlay = document.getElementById('analyzing-overlay');
+            if (overlay) {
+                overlay.remove();
+            }
+        }
+        
+        // Function to get image dimensions
+        function getImageDimensions(url) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.crossOrigin = 'anonymous';
+                img.onload = function() {
+                    resolve({
+                        width: this.naturalWidth,
+                        height: this.naturalHeight,
+                        type: url.split('.').pop().toLowerCase()
+                    });
+                };
+                img.onerror = function() {
+                    resolve({
+                        width: 0,
+                        height: 0,
+                        type: 'unknown'
+                    });
+                };
+                img.src = url;
+            });
+        }
+        
+        // Function to get file size via HEAD request
+        async function getFileSize(url) {
+            try {
+                const response = await fetch(url, { method: 'HEAD' });
+                const size = parseInt(response.headers.get('content-length')) || 0;
+                return size;
+            } catch (error) {
+                return 0;
+            }
+        }
+        
+        // Create file type filters based on analyzed images
+        function createFileTypeFilters(images) {
+            const fileTypes = {};
+            images.forEach(img => {
+                const type = img.type || 'UNKNOWN';
+                fileTypes[type] = (fileTypes[type] || 0) + 1;
+            });
+            
+            const filterContainer = document.getElementById('file-type-filters');
+            if (filterContainer) {
+                filterContainer.innerHTML = Object.entries(fileTypes)
+                    .sort(([,a], [,b]) => b - a)
+                    .map(([type, count]) => `
+                        <button class="filter-btn" data-type="${type}">
+                            ${type} (${count})
+                        </button>
+                    `).join('');
+                
+                // Add event listeners to filter buttons
+                filterContainer.querySelectorAll('.filter-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        const type = btn.dataset.type;
+                        const filteredImages = images.filter(img => img.type === type);
+                        displayImages(filteredImages, `${type} Images`);
+                    });
+                });
+            }
+        }
+        
         // Helper function to update stats from images array
         function updateStats(images) {
             const totalFiles = images.length;
@@ -771,542 +987,341 @@
         }
 
         function displayImages(images, title) {
-            console.log('🚀 displayImages called with', images.length, 'images');
             const gallery = document.getElementById('image-gallery');
             gallery.innerHTML = '';
 
             if (!images || images.length === 0) {
-                gallery.innerHTML = '<div class="error">No images to display.</div>';
+                gallery.innerHTML = `
+                    <div class="no-images">
+                        <i class="fas fa-images"></i>
+                        <h3>No images to display</h3>
+                        <p>Try fetching images from your store or adjusting your filters.</p>
+                    </div>
+                `;
                 return;
             }
 
             const header = document.createElement('h3');
             header.textContent = title || 'Images';
+            header.className = 'gallery-header';
             gallery.appendChild(header);
 
-            const list = document.createElement('ul');
-            list.className = 'image-list';
-
+            const imageGrid = document.createElement('div');
+            imageGrid.className = 'image-grid';
+            
             images.forEach((image, index) => {
-                console.log('📸 Processing image', index, image.url);
-                const listItem = document.createElement('li');
-                listItem.className = 'image-list-item';
-                listItem.setAttribute('data-image-index', index);
-
-                // Selection checkbox
-                const checkboxContainer = document.createElement('div');
-                checkboxContainer.className = 'image-checkbox-container';
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.className = 'image-checkbox';
-                checkbox.id = `image-checkbox-${index}`;
-                checkbox.addEventListener('change', () => updateSelectionCount());
-                checkboxContainer.appendChild(checkbox);
-
-                // Image thumbnail
-                const thumbnail = document.createElement('img');
-                thumbnail.src = image.url;
-                thumbnail.alt = 'Image thumbnail';
-                thumbnail.className = 'image-thumbnail';
+                const imageItem = document.createElement('div');
+                imageItem.className = 'image-item';
                 
-                // Image details container
-                const details = document.createElement('div');
-                details.className = 'image-details';
-
-                // File size
-                const sizeEl = document.createElement('div');
-                sizeEl.className = 'image-detail';
-                sizeEl.innerHTML = `<strong>Size:</strong> ${image.sizeFormatted || formatFileSize(image.size || 0)}`;
-                details.appendChild(sizeEl);
-
+                // Create image container
+                const imageContainer = document.createElement('div');
+                imageContainer.className = 'image-container';
+                
+                // Create image element with lazy loading
+                const img = document.createElement('img');
+                img.src = image.url;
+                img.alt = image.name || `Image ${index + 1}`;
+                img.loading = 'lazy';
+                img.onerror = function() {
+                    this.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDIwMCAyMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIyMDAiIGhlaWdodD0iMjAwIiBmaWxsPSIjRjNGNEY2Ii8+CjxwYXRoIGQ9Ik0xMDAgMTAwTDEwMCAxMDBaIiBzdHJva2U9IiM5Q0E0QTgiIHN0cm9rZS13aWR0aD0iMiIvPgo8dGV4dCB4PSIxMDAiIHk9IjEwNSIgZmlsbD0iIzlDQTRBOCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjEyIj5JbWFnZSBub3QgYXZhaWxhYmxlPC90ZXh0Pgo8L3N2Zz4K';
+                };
+                
+                imageContainer.appendChild(img);
+                
+                // Add oversized indicator
+                if (image.oversized) {
+                    const oversizedBadge = document.createElement('div');
+                    oversizedBadge.className = 'oversized-badge';
+                    oversizedBadge.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Oversized';
+                    imageContainer.appendChild(oversizedBadge);
+                }
+                
+                // Create info section
+                const infoSection = document.createElement('div');
+                infoSection.className = 'image-info';
+                
+                // Image name
+                const imageName = document.createElement('div');
+                imageName.className = 'image-name';
+                imageName.textContent = image.name || `Image ${index + 1}`;
+                infoSection.appendChild(imageName);
+                
+                // Image metadata
+                const imageMeta = document.createElement('div');
+                imageMeta.className = 'image-meta';
+                
+                // Category
+                const categorySpan = document.createElement('span');
+                categorySpan.className = 'image-category';
+                categorySpan.textContent = image.category || 'Unknown';
+                imageMeta.appendChild(categorySpan);
+                
+                // Size
+                if (image.sizeFormatted) {
+                    const sizeSpan = document.createElement('span');
+                    sizeSpan.className = 'image-size';
+                    sizeSpan.textContent = image.sizeFormatted;
+                    imageMeta.appendChild(sizeSpan);
+                }
+                
+                // Type
+                if (image.type) {
+                    const typeSpan = document.createElement('span');
+                    typeSpan.className = 'image-type';
+                    typeSpan.textContent = image.type;
+                    imageMeta.appendChild(typeSpan);
+                }
+                
                 // Dimensions
-                const dimensionsEl = document.createElement('div');
-                dimensionsEl.className = 'image-detail';
-                const width = image.width || 0;
-                const height = image.height || 0;
-                dimensionsEl.innerHTML = `<strong>Dimensions:</strong> ${width} × ${height}px`;
-                details.appendChild(dimensionsEl);
-
-                // Oversized status
-                const oversizedEl = document.createElement('div');
-                oversizedEl.className = 'image-detail';
-                const isOversized = image.isLarge || image.oversized;
-                oversizedEl.innerHTML = `<strong>Oversized:</strong> <span class="oversized-${isOversized ? 'yes' : 'no'}">${isOversized ? 'Yes' : 'No'}</span>`;
-                details.appendChild(oversizedEl);
-
-                // URL (truncated for display)
-                const urlEl = document.createElement('div');
-                urlEl.className = 'image-detail url-detail';
-                const truncatedUrl = image.url.length > 60 ? image.url.substring(0, 60) + '...' : image.url;
-                urlEl.innerHTML = `<strong>URL:</strong> <span class="image-url" title="${image.url}">${truncatedUrl}</span>`;
-                details.appendChild(urlEl);
-
-                // Create buttons directly
-                const openButton = document.createElement('a');
-                openButton.href = image.url;
-                openButton.target = '_blank';
-                openButton.rel = 'noopener noreferrer';
-                openButton.className = 'btn btn-outline btn-small open-image-btn';
-                openButton.innerHTML = '<i class="fas fa-external-link-alt"></i> Open Image';
-                openButton.style.cssText = 'margin-right: 8px; margin-top: 8px; display: inline-block;';
-                details.appendChild(openButton);
-
-                const replaceButton = document.createElement('button');
-                replaceButton.className = 'btn btn-primary btn-small replace-image-btn';
-                replaceButton.innerHTML = '<i class="fas fa-upload"></i> Replace';
-                replaceButton.title = 'Replace this image with a new one';
-                replaceButton.style.cssText = 'margin-top: 8px; display: inline-block;';
-                replaceButton.onclick = () => {
-                    console.log('Replace button clicked for image', index);
-                    showReplaceImageModal(image, index);
-                };
-                details.appendChild(replaceButton);
-
-                listItem.appendChild(checkboxContainer);
-                listItem.appendChild(thumbnail);
-                listItem.appendChild(details);
-                list.appendChild(listItem);
+                if (image.width && image.height) {
+                    const dimensionsSpan = document.createElement('span');
+                    dimensionsSpan.textContent = `${image.width}×${image.height}px`;
+                    imageMeta.appendChild(dimensionsSpan);
+                }
+                
+                infoSection.appendChild(imageMeta);
+                
+                // Oversized reasons
+                if (image.oversized && image.oversizeReasons && image.oversizeReasons.length > 0) {
+                    const oversizedReasons = document.createElement('div');
+                    oversizedReasons.className = 'oversized-reasons';
+                    oversizedReasons.innerHTML = `
+                        <strong>Issues:</strong>
+                        <ul>
+                            ${image.oversizeReasons.map(reason => `<li>${reason}</li>`).join('')}
+                        </ul>
+                    `;
+                    infoSection.appendChild(oversizedReasons);
+                }
+                
+                // Action buttons
+                const actions = document.createElement('div');
+                actions.className = 'image-actions';
+                
+                // Selection checkbox
+                const selectCheckbox = document.createElement('input');
+                selectCheckbox.type = 'checkbox';
+                selectCheckbox.className = 'image-select';
+                selectCheckbox.dataset.imageUrl = image.url;
+                selectCheckbox.onchange = updateSelectionCount;
+                
+                // View button
+                const viewBtn = document.createElement('button');
+                viewBtn.className = 'btn-icon';
+                viewBtn.innerHTML = '<i class="fas fa-eye"></i>';
+                viewBtn.title = 'View image';
+                viewBtn.onclick = () => window.open(image.url, '_blank');
+                
+                // Replace button
+                const replaceBtn = document.createElement('button');
+                replaceBtn.className = 'btn-icon';
+                replaceBtn.innerHTML = '<i class="fas fa-upload"></i>';
+                replaceBtn.title = 'Replace image';
+                replaceBtn.onclick = () => showReplaceImageModal(image);
+                
+                actions.appendChild(selectCheckbox);
+                actions.appendChild(viewBtn);
+                actions.appendChild(replaceBtn);
+                
+                infoSection.appendChild(actions);
+                
+                // Assemble the image item
+                imageItem.appendChild(imageContainer);
+                imageItem.appendChild(infoSection);
+                imageGrid.appendChild(imageItem);
             });
-
-            gallery.appendChild(list);
             
-            // Show download controls when images are displayed
-            if (images.length > 0) {
-                document.getElementById('download-controls').classList.remove('hidden');
-                updateSelectionCount();
-            }
+            gallery.appendChild(imageGrid);
+            
+            // Show download controls
+            document.getElementById('download-controls').classList.remove('hidden');
+            
+            // Show re-analyze button
+            document.getElementById('fetch-metadata-btn').classList.remove('hidden');
+            
+            // Update selection count
+            updateSelectionCount();
         }
-
-        function createFileTypeFilters(images) {
-            const filterContainer = document.getElementById('file-type-filters');
-            filterContainer.innerHTML = '';
-
-            const fileTypeCounts = images.reduce((counts, image) => {
-                const fileType = getFileExtension(image.url);
-                counts[fileType] = (counts[fileType] || 0) + 1;
-                return counts;
-            }, {});
-
-            Object.entries(fileTypeCounts).forEach(([fileType, count]) => {
-                const filterButton = document.createElement('button');
-                filterButton.className = 'filter-button';
-                filterButton.textContent = `${fileType.toUpperCase()} (${count})`;
-                filterButton.onclick = () => {
-                    const filteredImages = images.filter(image => {
-                        const imageFileType = getFileExtension(image.url);
-                        return imageFileType === fileType;
-                    });
-                    displayImages(filteredImages, `Images (${fileType.toUpperCase()})`);
-                };
-                filterContainer.appendChild(filterButton);
-            });
-
-            const showAllButton = document.createElement('button');
-            showAllButton.className = 'filter-button';
-            showAllButton.textContent = 'All';
-            showAllButton.onclick = () => displayImages(images, 'All Images');
-            filterContainer.appendChild(showAllButton);
-        }
-
+        
+        // Update filter counts
         function updateFilterCounts(images) {
-            const fileTypeCounts = images.reduce((counts, image) => {
-                const fileType = getFileExtension(image.url);
-                counts[fileType] = (counts[fileType] || 0) + 1;
-                return counts;
-            }, {});
-
-            // Count images by category
-            const categoryCounts = images.reduce((counts, image) => {
-                const category = image.category || 'products'; // default to products if no category
-                counts[category] = (counts[category] || 0) + 1;
-                return counts;
-            }, {});
-
-            const totalFiles = images.length;
-            const largeFiles = images.filter(img => img.isLarge).length;
-
-            // Update stats
-            document.getElementById('total-files').textContent = totalFiles;
-            document.getElementById('oversized-count').textContent = largeFiles;
-
-            // Update category counts in filter buttons
-            document.getElementById('count-all').textContent = totalFiles;
-            document.getElementById('count-theme').textContent = categoryCounts.theme || 0;
-            document.getElementById('count-products').textContent = categoryCounts.products || 0;
-            document.getElementById('count-collections').textContent = categoryCounts.collections || 0;
-            document.getElementById('count-oversized').textContent = largeFiles;
-
-            const filterContainer = document.getElementById('file-type-filters');
-            filterContainer.innerHTML = '';
-
-            Object.entries(fileTypeCounts).forEach(([fileType, count]) => {
-                const filterButton = document.createElement('button');
-                filterButton.className = 'filter-button';
-                filterButton.textContent = `${fileType.toUpperCase()} (${count})`;
-                filterButton.onclick = () => {
-                    const filteredImages = images.filter(image => {
-                        const imageFileType = getFileExtension(image.url);
-                        return imageFileType === fileType;
-                    });
-                    displayImages(filteredImages, `Images (${fileType.toUpperCase()})`);
-                };
-                filterContainer.appendChild(filterButton);
+            const counts = {
+                all: images.length,
+                theme: images.filter(img => img.category === 'theme').length,
+                products: images.filter(img => img.category === 'products').length,
+                collections: images.filter(img => img.category === 'collections').length,
+                oversized: images.filter(img => img.oversized || img.isLarge).length
+            };
+            
+            Object.entries(counts).forEach(([filter, count]) => {
+                const countEl = document.getElementById(`count-${filter}`);
+                if (countEl) countEl.textContent = count;
             });
-
-            const showAllButton = document.createElement('button');
-            showAllButton.className = 'filter-button';
-            showAllButton.textContent = 'All';
-            showAllButton.onclick = () => displayImages(images, 'All Images');
-            filterContainer.appendChild(showAllButton);
         }
-
-        // Function to filter images by category (called by filter buttons)
+        
+        // Filter images by category
         function filterImages(category) {
-            console.log('Filtering images by category:', category);
+            if (!imageSession.load()) return;
             
-            // Get current images from session
-            if (!imageSession.load() || !imageSession.isValid(window.shopifyApp.shop)) {
-                showNotification('No images loaded. Please fetch images first.', 'error');
-                return;
+            const images = imageSession.images;
+            let filteredImages = images;
+            let title = 'All Images';
+            
+            switch (category) {
+                case 'theme':
+                    filteredImages = images.filter(img => img.category === 'theme');
+                    title = 'Theme Images';
+                    break;
+                case 'products':
+                    filteredImages = images.filter(img => img.category === 'products');
+                    title = 'Product Images';
+                    break;
+                case 'collections':
+                    filteredImages = images.filter(img => img.category === 'collections');
+                    title = 'Collection Images';
+                    break;
+                case 'oversized':
+                    filteredImages = images.filter(img => img.oversized || img.isLarge);
+                    title = 'Oversized Images';
+                    break;
             }
             
-            const allImages = imageSession.images;
-            let filteredImages;
-            let title;
-            
-            // Filter images based on category
-            if (category === 'all') {
-                filteredImages = allImages;
-                title = 'All Images';
-            } else if (category === 'oversized') {
-                filteredImages = allImages.filter(image => image.isLarge || image.oversized);
-                title = 'Oversized Images';
-            } else {
-                filteredImages = allImages.filter(image => image.category === category);
-                title = `${category.charAt(0).toUpperCase() + category.slice(1)} Images`;
-            }
-            
-            // Display filtered images
             displayImages(filteredImages, title);
             
-            // Update active filter button styling
+            // Update active filter button
             document.querySelectorAll('.filter-btn').forEach(btn => {
-                btn.classList.remove('active');
+                btn.classList.toggle('active', btn.dataset.filter === category);
             });
-            document.querySelector(`[data-filter="${category}"]`).classList.add('active');
-            
-            console.log(`Filtered to ${filteredImages.length} images for category: ${category}`);
         }
-
-        function updateSelectionCount() {
-            const checkboxes = document.querySelectorAll('.image-checkbox');
-            const selectedCheckboxes = document.querySelectorAll('.image-checkbox:checked');
-            const selectedCount = selectedCheckboxes.length;
-            
-            // Update the selection count display
-            const selectionCount = document.getElementById('selection-count');
-            if (selectionCount) {
-                selectionCount.textContent = `${selectedCount} selected`;
-            }
-            
-            // Update download buttons state
-            const downloadSelectedBtn = document.getElementById('download-selected-btn');
-            if (downloadSelectedBtn) {
-                downloadSelectedBtn.disabled = selectedCount === 0;
-            }
-        }
-
-        // Selection control functions
+        
+        // Selection functions
         function selectAllImages() {
-            const checkboxes = document.querySelectorAll('.image-checkbox');
-            checkboxes.forEach(checkbox => {
+            document.querySelectorAll('.image-select').forEach(checkbox => {
                 checkbox.checked = true;
             });
             updateSelectionCount();
         }
-
+        
         function selectNoneImages() {
-            const checkboxes = document.querySelectorAll('.image-checkbox');
-            checkboxes.forEach(checkbox => {
+            document.querySelectorAll('.image-select').forEach(checkbox => {
                 checkbox.checked = false;
             });
             updateSelectionCount();
         }
-
+        
+        function updateSelectionCount() {
+            const selectedCount = document.querySelectorAll('.image-select:checked').length;
+            document.getElementById('selection-count').textContent = `${selectedCount} selected`;
+            
+            const downloadSelectedBtn = document.getElementById('download-selected-btn');
+            downloadSelectedBtn.disabled = selectedCount === 0;
+        }
+        
         // Download functions
-        async function downloadAllImages() {
-            if (!imageSession.load() || !imageSession.isValid(window.shopifyApp.shop)) {
-                showNotification('No images loaded. Please fetch images first.', 'error');
-                return;
-            }
-
-            const images = imageSession.images;
-            await downloadImagesAsZip(images, 'all-images.zip');
+        function downloadAllImages() {
+            if (!imageSession.load()) return;
+            downloadImages(imageSession.images, 'all-images');
         }
-
-        async function downloadSelectedImages() {
-            if (!imageSession.load() || !imageSession.isValid(window.shopifyApp.shop)) {
-                showNotification('No images loaded. Please fetch images first.', 'error');
+        
+        function downloadSelectedImages() {
+            const selectedUrls = Array.from(document.querySelectorAll('.image-select:checked'))
+                .map(checkbox => checkbox.dataset.imageUrl);
+            
+            if (selectedUrls.length === 0) {
+                showNotification('No images selected', 'warning');
                 return;
             }
-
-            const selectedCheckboxes = document.querySelectorAll('.image-checkbox:checked');
-            if (selectedCheckboxes.length === 0) {
-                showNotification('No images selected. Please select images to download.', 'warning');
-                return;
-            }
-
-            const selectedImages = [];
-            selectedCheckboxes.forEach(checkbox => {
-                const listItem = checkbox.closest('.image-list-item');
-                const imageIndex = parseInt(listItem.getAttribute('data-image-index'));
-                selectedImages.push(imageSession.images[imageIndex]);
-            });
-
-            await downloadImagesAsZip(selectedImages, `selected-images-${selectedImages.length}.zip`);
+            
+            const selectedImages = imageSession.images.filter(img => selectedUrls.includes(img.url));
+            downloadImages(selectedImages, 'selected-images');
         }
-
-        // ZIP download functionality
-        async function downloadImagesAsZip(images, filename) {
-            if (!window.JSZip) {
-                showNotification('ZIP functionality not available', 'error');
+        
+        async function downloadImages(images, filename) {
+            if (!images || images.length === 0) {
+                showNotification('No images to download', 'warning');
                 return;
             }
-
+            
+            showNotification(`Preparing download of ${images.length} images...`, 'info');
+            
             try {
-                showNotification('Preparing download...', 'info');
-                
                 const zip = new JSZip();
-                const folder = zip.folder('images');
+                const promises = [];
                 
-                // Generate CSV mapping file
-                const csvContent = generateImageMappingCSV(images);
-                zip.file('image-mapping.csv', csvContent);
+                images.forEach((image, index) => {
+                    const promise = fetch(image.url)
+                        .then(response => response.blob())
+                        .then(blob => {
+                            const extension = getFileExtension(image.url);
+                            const filename = `image_${index + 1}_${image.category || 'unknown'}.${extension}`;
+                            zip.file(filename, blob);
+                        })
+                        .catch(error => {
+                            console.warn(`Failed to download image ${index + 1}:`, error);
+                        });
+                    
+                    promises.push(promise);
+                });
                 
-                // Generate README file
-                const readmeContent = generateReadmeContent(images);
-                zip.file('README.md', readmeContent);
+                await Promise.all(promises);
                 
-                // Download images with progress tracking
-                let downloadedCount = 0;
-                const totalImages = images.length;
-                
-                for (const image of images) {
-                    try {
-                        const response = await fetch(image.url);
-                        if (response.ok) {
-                            const blob = await response.blob();
-                            const extension = getFileExtension(image.url) || 'jpg';
-                            const sanitizedFilename = `image-${downloadedCount + 1}.${extension}`;
-                            folder.file(sanitizedFilename, blob);
-                        }
-                        downloadedCount++;
-                        
-                        // Update progress
-                        if (downloadedCount % 10 === 0 || downloadedCount === totalImages) {
-                            showNotification(`Downloaded ${downloadedCount}/${totalImages} images...`, 'info');
-                        }
-                    } catch (error) {
-                        console.warn('Failed to download image:', image.url, error);
-                    }
-                }
-                
-                // Generate and download ZIP
-                showNotification('Generating ZIP file...', 'info');
                 const zipBlob = await zip.generateAsync({ type: 'blob' });
-                
-                // Create download link
                 const url = URL.createObjectURL(zipBlob);
+                
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = filename;
+                a.download = `${filename}-${new Date().toISOString().split('T')[0]}.zip`;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
                 
-                showNotification(`Successfully downloaded ${downloadedCount} images as ${filename}`, 'success');
-                
+                showNotification(`Successfully downloaded ${images.length} images`, 'success');
             } catch (error) {
-                console.error('Error creating ZIP file:', error);
-                showNotification('Failed to create ZIP file', 'error');
+                console.error('Download failed:', error);
+                showNotification('Download failed: ' + error.message, 'error');
             }
         }
-
-        // Generate CSV mapping file
-        function generateImageMappingCSV(images) {
-            const headers = ['Index', 'Filename', 'Original URL', 'Size (bytes)', 'Dimensions', 'Type', 'Category', 'Oversized'];
-            const rows = [headers.join(',')];
-            
-            images.forEach((image, index) => {
-                const extension = getFileExtension(image.url) || 'jpg';
-                const filename = `image-${index + 1}.${extension}`;
-                const dimensions = `${image.width || 0}x${image.height || 0}`;
-                const isOversized = image.isLarge || image.oversized ? 'Yes' : 'No';
-                
-                const row = [
-                    index + 1,
-                    filename,
-                    `"${image.url}"`,
-                    image.size || 0,
-                    dimensions,
-                    image.type || extension.toUpperCase(),
-                    image.category || 'Unknown',
-                    isOversized
-                ];
-                
-                rows.push(row.join(','));
-            });
-            
-            return rows.join('\n');
-        }
-
-        // Generate README content
-        function generateReadmeContent(images) {
-            const totalSize = images.reduce((sum, img) => sum + (img.size || 0), 0);
-            const oversizedCount = images.filter(img => img.isLarge || img.oversized).length;
-            
-            const categoryCounts = images.reduce((counts, image) => {
-                const category = image.category || 'Unknown';
-                counts[category] = (counts[category] || 0) + 1;
-                return counts;
-            }, {});
-            
-            return `# Shopify Media Export
-
-## Summary
-- **Total Images**: ${images.length}
-- **Total Size**: ${formatFileSize(totalSize)}
-- **Oversized Images**: ${oversizedCount}
-- **Export Date**: ${new Date().toISOString().split('T')[0]}
-- **Store**: ${window.shopifyApp.shop || 'Unknown'}
-
-## Category Breakdown
-${Object.entries(categoryCounts).map(([category, count]) => `- **${category}**: ${count} images`).join('\n')}
-
-## Files Included
-- **image-mapping.csv**: Detailed mapping of all images with metadata
-- **images/**: Folder containing all downloaded images
-
-## Usage
-1. The images are numbered sequentially (image-1.jpg, image-2.png, etc.)
-2. Use the image-mapping.csv file to match images to their original URLs
-3. Each image retains its original format and quality
-
----
-Generated by SPREE Shopify Media Manager
-https://wearespree.com
-`;
-        }
-
-        // Function to show replace image modal
-        function showReplaceImageModal(image, index) {
+        
+        // Replace image modal
+        function showReplaceImageModal(image) {
             const modal = document.createElement('div');
             modal.className = 'modal';
             modal.innerHTML = `
-                <div class="modal-content replace-image-modal">
+                <div class="modal-content">
                     <div class="modal-header">
                         <h3><i class="fas fa-upload"></i> Replace Image</h3>
                         <button class="modal-close" onclick="this.closest('.modal').remove()">&times;</button>
                     </div>
                     <div class="modal-body">
-                        <div class="current-image-info">
+                        <div class="current-image">
                             <h4>Current Image</h4>
-                            <div class="image-preview">
-                                <img src="${image.url}" alt="Current image" style="max-width: 200px; max-height: 200px; object-fit: contain; border: 1px solid #ddd; border-radius: 8px;">
-                                <div class="image-details" style="margin-top: 10px;">
-                                    <p><strong>Size:</strong> ${image.sizeFormatted || formatFileSize(image.size || 0)}</p>
-                                    <p><strong>Dimensions:</strong> ${image.width || 0} × ${image.height || 0}px</p>
-                                    <p><strong>Type:</strong> ${(image.type || getFileExtension(image.url)).toUpperCase()}</p>
-                                    <p><strong>Category:</strong> ${image.category || 'Unknown'}</p>
-                                </div>
+                            <img src="${image.url}" alt="Current image" style="max-width: 200px; max-height: 200px;">
+                            <div class="image-details">
+                                <p><strong>Category:</strong> ${image.category || 'Unknown'}</p>
+                                <p><strong>Dimensions:</strong> ${image.width || 'Unknown'}×${image.height || 'Unknown'}px</p>
+                                <p><strong>Size:</strong> ${image.sizeFormatted || 'Unknown'}</p>
+                                <p><strong>Type:</strong> ${image.type || 'Unknown'}</p>
                             </div>
                         </div>
                         
-                        <div class="new-image-upload" style="margin-top: 20px;">
-                            <h4>Select New Image</h4>
-                            <div class="upload-area" id="upload-area-${index}" style="border: 2px dashed #312A72; border-radius: 8px; padding: 20px; text-align: center; cursor: pointer; background: #f8f9fa; transition: all 0.3s ease;">
-                                <div class="upload-placeholder">
-                                    <i class="fas fa-cloud-upload-alt fa-3x" style="color: #312A72; margin-bottom: 10px;"></i>
-                                    <p>Click to select image or drag & drop</p>
-                                    <p style="font-size: 12px; color: #666;">Supported formats: JPG, PNG, WebP, GIF (Max 10MB)</p>
-                                </div>
-                                <input type="file" id="file-input-${index}" accept="image/*" style="display: none;">
-                            </div>
-                            <div id="preview-area-${index}" style="margin-top: 15px; display: none;">
-                                <h5>New Image Preview:</h5>
-                                <img id="preview-image-${index}" style="max-width: 200px; max-height: 200px; object-fit: contain; border: 1px solid #ddd; border-radius: 8px;">
-                                <div id="preview-details-${index}" style="margin-top: 10px; font-size: 14px; color: #666;"></div>
-                            </div>
-                        </div>
-                        
-                        <div class="replace-status" id="replace-status-${index}" style="margin-top: 15px; display: none;">
-                            <div class="status-message"></div>
-                            <div class="progress-bar" style="width: 100%; height: 6px; background: #f0f0f0; border-radius: 3px; overflow: hidden;">
-                                <div class="progress-fill" style="height: 100%; background: #312A72; width: 0%; transition: width 0.3s ease;"></div>
+                        <div class="new-image">
+                            <h4>New Image</h4>
+                            <input type="file" id="new-image-file" accept="image/*" required>
+                            <div class="upload-info">
+                                <p>Select a new image to replace the current one.</p>
+                                <p><small>Supported formats: JPG, PNG, GIF, WebP</small></p>
                             </div>
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button class="btn btn-outline" onclick="this.closest('.modal').remove()">Cancel</button>
-                        <button class="btn btn-primary" id="replace-btn-${index}" disabled onclick="replaceImage(${index})">
-                            <i class="fas fa-upload"></i> Replace Image
-                        </button>
+                        <button class="btn btn-secondary" onclick="this.closest('.modal').remove()">Cancel</button>
+                        <button class="btn btn-primary" onclick="replaceImage('${image.url}', '${image.category}')">Replace Image</button>
                     </div>
                 </div>
             `;
             
             document.body.appendChild(modal);
-            
-            // Set up file input handling
-            const fileInput = document.getElementById(`file-input-${index}`);
-            const uploadArea = document.getElementById(`upload-area-${index}`);
-            const previewArea = document.getElementById(`preview-area-${index}`);
-            const previewImage = document.getElementById(`preview-image-${index}`);
-            const previewDetails = document.getElementById(`preview-details-${index}`);
-            const replaceBtn = document.getElementById(`replace-btn-${index}`);
-            
-            // Upload area click handler
-            uploadArea.addEventListener('click', () => fileInput.click());
-            
-            // Drag and drop handlers
-            uploadArea.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                uploadArea.style.borderColor = '#ffcd00';
-                uploadArea.style.backgroundColor = '#fffdf0';
-            });
-            
-            uploadArea.addEventListener('dragleave', (e) => {
-                e.preventDefault();
-                uploadArea.style.borderColor = '#312A72';
-                uploadArea.style.backgroundColor = '#f8f9fa';
-            });
-            
-            uploadArea.addEventListener('drop', (e) => {
-                e.preventDefault();
-                uploadArea.style.borderColor = '#312A72';
-                uploadArea.style.backgroundColor = '#f8f9fa';
-                
-                const files = e.dataTransfer.files;
-                if (files.length > 0) {
-                    handleFileSelection(files[0], index);
-                }
-            });
-            
-            // File input change handler
-            fileInput.addEventListener('change', (e) => {
-                if (e.target.files.length > 0) {
-                    handleFileSelection(e.target.files[0], index);
-                }
-            });
-            
-            // Store the original image data for replacement
-            window.replaceImageData = window.replaceImageData || {};
-            window.replaceImageData[index] = {
-                originalImage: image,
-                originalIndex: index,
-                newFile: null
-            };
             
             // Close modal when clicking outside
             modal.addEventListener('click', (e) => {
@@ -1316,141 +1331,49 @@ https://wearespree.com
             });
         }
         
-        // Handle file selection for image replacement
-        function handleFileSelection(file, index) {
-            // Validate file type
-            if (!file.type.startsWith('image/')) {
-                showNotification('Please select a valid image file.', 'error');
-                return;
-            }
-            
-            // Validate file size (10MB limit)
-            if (file.size > 10 * 1024 * 1024) {
-                showNotification('File size must be less than 10MB.', 'error');
-                return;
-            }
-            
-            const previewArea = document.getElementById(`preview-area-${index}`);
-            const previewImage = document.getElementById(`preview-image-${index}`);
-            const previewDetails = document.getElementById(`preview-details-${index}`);
-            const replaceBtn = document.getElementById(`replace-btn-${index}`);
-            
-            // Show preview
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                previewImage.src = e.target.result;
-                previewArea.style.display = 'block';
-                
-                // Get image dimensions
-                const img = new Image();
-                img.onload = function() {
-                    previewDetails.innerHTML = `
-                        <p><strong>Size:</strong> ${formatFileSize(file.size)}</p>
-                        <p><strong>Dimensions:</strong> ${this.width} × ${this.height}px</p>
-                        <p><strong>Type:</strong> ${file.type.split('/')[1].toUpperCase()}</p>
-                    `;
-                };
-                img.src = e.target.result;
-            };
-            reader.readAsDataURL(file);
-            
-            // Enable replace button
-            replaceBtn.disabled = false;
-            
-            // Store the file for replacement
-            window.replaceImageData[index].newFile = file;
-        }
-        
         // Replace image function
-        async function replaceImage(index) {
-            const replaceData = window.replaceImageData[index];
-            if (!replaceData || !replaceData.newFile) {
-                showNotification('No file selected for replacement.', 'error');
+        async function replaceImage(originalUrl, category) {
+            const fileInput = document.getElementById('new-image-file');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showNotification('Please select an image file', 'warning');
                 return;
             }
             
-            const originalImage = replaceData.originalImage;
-            const newFile = replaceData.newFile;
-            const replaceBtn = document.getElementById(`replace-btn-${index}`);
-            const statusDiv = document.getElementById(`replace-status-${index}`);
-            const progressBar = statusDiv.querySelector('.progress-fill');
-            const statusMessage = statusDiv.querySelector('.status-message');
-            
-            // Disable button and show status
-            replaceBtn.disabled = true;
-            replaceBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Replacing...';
-            statusDiv.style.display = 'block';
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('originalUrl', originalUrl);
+            formData.append('category', category);
+            formData.append('shop', window.shopifyApp.shop);
+            formData.append('accessToken', window.shopifyApp.accessToken);
             
             try {
-                // Step 1: Upload new image
-                statusMessage.textContent = 'Uploading new image...';
-                progressBar.style.width = '25%';
+                showNotification('Replacing image...', 'info');
                 
-                const formData = new FormData();
-                formData.append('image', newFile);
-                formData.append('shop', window.shopifyApp.shop);
-                formData.append('accessToken', window.shopifyApp.accessToken);
-                formData.append('originalUrl', originalImage.url);
-                formData.append('category', originalImage.category || 'products');
-                
-                const uploadResponse = await fetch('/api/media/replace', {
+                const response = await fetch('/api/media/replace', {
                     method: 'POST',
                     body: formData
                 });
                 
-                if (!uploadResponse.ok) {
-                    const errorData = await uploadResponse.json();
-                    throw new Error(errorData.error || 'Failed to upload image');
-                }
+                const result = await response.json();
                 
-                const uploadResult = await uploadResponse.json();
-                
-                // Step 2: Update Shopify
-                statusMessage.textContent = 'Updating Shopify store...';
-                progressBar.style.width = '75%';
-                
-                await new Promise(resolve => setTimeout(resolve, 1000)); // Small delay for UX
-                
-                // Step 3: Complete
-                statusMessage.textContent = 'Image replaced successfully!';
-                progressBar.style.width = '100%';
-                
-                // Update the image in the session and UI
-                if (imageSession.images && imageSession.images[index]) {
-                    imageSession.images[index] = {
-                        ...imageSession.images[index],
-                        url: uploadResult.newUrl,
-                        size: uploadResult.size,
-                        sizeFormatted: formatFileSize(uploadResult.size),
-                        width: uploadResult.width,
-                        height: uploadResult.height,
-                        type: uploadResult.type,
-                        lastModified: new Date().toISOString()
-                    };
+                if (result.success) {
+                    showNotification('Image replaced successfully!', 'success');
                     
-                    // Save updated session
-                    imageSession.save(imageSession.images, window.shopifyApp.shop);
-                    
-                    // Refresh the image display
-                    displayImages(imageSession.images, 'All Images (Updated)');
-                }
-                
-                showNotification(`Image replaced successfully! New size: ${formatFileSize(uploadResult.size)}`, 'success');
-                
-                // Close modal after success
-                setTimeout(() => {
+                    // Close modal
                     document.querySelector('.modal').remove();
-                }, 2000);
-                
+                    
+                    // Refresh images
+                    setTimeout(() => {
+                        refreshImages();
+                    }, 1000);
+                } else {
+                    throw new Error(result.error || 'Failed to replace image');
+                }
             } catch (error) {
-                console.error('Error replacing image:', error);
-                statusMessage.textContent = 'Failed to replace image';
-                progressBar.style.width = '0%';
-                showNotification(`Failed to replace image: ${error.message}`, 'error');
-                
-                // Re-enable button
-                replaceBtn.disabled = false;
-                replaceBtn.innerHTML = '<i class="fas fa-upload"></i> Replace Image';
+                console.error('Replace image error:', error);
+                showNotification('Failed to replace image: ' + error.message, 'error');
             }
         }
 
@@ -1463,26 +1386,6 @@ https://wearespree.com
     
     <!-- External Scripts -->
     <!-- <script src="app.js"></script> --> <!-- Commented out to avoid conflicts -->
-    <script src="image-optimizer.js"></script>
-    
-    <!-- Initialize optimization functionality -->
-    <script>
-        console.log('Initialization script loaded');
-        
-        // Add optimization functionality after DOM loads
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM loaded - checking dependencies');
-            
-            if (!window.ImageOptimizer) {
-                console.warn('ImageOptimizer not available');
-            } else {
-                console.log('ImageOptimizer loaded successfully');
-            }
-            
-            // The calculateOptimizationSavings function should already exist in the main script
-            console.log('Optimization functionality ready');
-        });
-    </script>
     
     <!-- SPREE Footer -->
     <footer class="spree-footer">
