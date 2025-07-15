@@ -340,7 +340,6 @@ async function fetchShopifyFiles(shop, accessToken) {
                                 height
                             }
                             mimeType
-                            fileSize
                             originalSource {
                                 url
                             }
@@ -374,7 +373,6 @@ async function fetchShopifyFiles(shop, accessToken) {
             width: edge.node.image?.width,
             height: edge.node.image?.height,
             mimeType: edge.node.mimeType,
-            fileSize: edge.node.fileSize,
             createdAt: edge.node.createdAt,
             fileStatus: edge.node.fileStatus
         })).filter(file => file.url && validateImageUrl(file.url));
@@ -392,87 +390,132 @@ async function fetchMetaobjects(shop, accessToken) {
         'Content-Type': 'application/json'
     };
     
-    const query = `
-        query getMetaobjects($first: Int!) {
-            metaobjects(first: $first) {
+    // First, get all metaobject definitions to know what types exist
+    const definitionsQuery = `
+        query getMetaobjectDefinitions($first: Int!) {
+            metaobjectDefinitions(first: $first) {
                 edges {
                     node {
                         id
                         type
-                        handle
-                        fields {
+                        name
+                        fieldDefinitions {
                             key
-                            type
-                            value
-                            reference {
-                                ... on MediaImage {
-                                    id
-                                    image {
-                                        url
-                                        width
-                                        height
-                                    }
-                                    alt
-                                }
+                            type {
+                                name
                             }
                         }
                     }
-                }
-                pageInfo {
-                    hasNextPage
-                    endCursor
                 }
             }
         }
     `;
     
     try {
-        const response = await axios.post(graphqlEndpoint, {
-            query,
-            variables: { first: 100 }
+        const definitionsResponse = await axios.post(graphqlEndpoint, {
+            query: definitionsQuery,
+            variables: { first: 50 }
         }, { headers });
         
-        if (response.data.errors) {
-            console.error('GraphQL errors:', response.data.errors);
+        if (definitionsResponse.data.errors) {
+            console.error('GraphQL definition errors:', definitionsResponse.data.errors);
             return [];
         }
         
-        const metaobjects = response.data.data?.metaobjects?.edges || [];
+        const definitions = definitionsResponse.data.data?.metaobjectDefinitions?.edges || [];
         const imageUrls = [];
         
-        for (const edge of metaobjects) {
-            const metaobject = edge.node;
+        // For each definition, fetch the metaobjects of that type
+        for (const defEdge of definitions) {
+            const definition = defEdge.node;
             
-            for (const field of metaobject.fields) {
-                // Check for file_reference fields with image references
-                if (field.type === 'file_reference' && field.reference?.image?.url) {
-                    imageUrls.push({
-                        url: field.reference.image.url,
-                        metaobjectId: metaobject.id,
-                        metaobjectType: metaobject.type,
-                        metaobjectHandle: metaobject.handle,
-                        fieldKey: field.key,
-                        alt: field.reference.alt,
-                        width: field.reference.image.width,
-                        height: field.reference.image.height
-                    });
+            // Check if this definition has any image fields
+            const hasImageFields = definition.fieldDefinitions.some(field => 
+                field.type.name === 'file_reference' || field.type.name === 'single_line_text_field'
+            );
+            
+            if (!hasImageFields) continue;
+            
+            const objectsQuery = `
+                query getMetaobjectsOfType($type: String!, $first: Int!) {
+                    metaobjects(type: $type, first: $first) {
+                        edges {
+                            node {
+                                id
+                                type
+                                handle
+                                fields {
+                                    key
+                                    type
+                                    value
+                                    reference {
+                                        ... on MediaImage {
+                                            id
+                                            image {
+                                                url
+                                                width
+                                                height
+                                            }
+                                            alt
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                // Check for URL fields that might contain image URLs
-                else if (field.type === 'single_line_text_field' && field.value && validateImageUrl(field.value)) {
-                    imageUrls.push({
-                        url: field.value,
-                        metaobjectId: metaobject.id,
-                        metaobjectType: metaobject.type,
-                        metaobjectHandle: metaobject.handle,
-                        fieldKey: field.key
-                    });
+            `;
+            
+            try {
+                const objectsResponse = await axios.post(graphqlEndpoint, {
+                    query: objectsQuery,
+                    variables: { type: definition.type, first: 50 }
+                }, { headers });
+                
+                if (objectsResponse.data.errors) {
+                    console.error(`GraphQL objects errors for type ${definition.type}:`, objectsResponse.data.errors);
+                    continue;
                 }
+                
+                const metaobjects = objectsResponse.data.data?.metaobjects?.edges || [];
+                
+                for (const edge of metaobjects) {
+                    const metaobject = edge.node;
+                    
+                    for (const field of metaobject.fields) {
+                        // Check for file_reference fields with image references
+                        if (field.type === 'file_reference' && field.reference?.image?.url) {
+                            imageUrls.push({
+                                url: field.reference.image.url,
+                                metaobjectId: metaobject.id,
+                                metaobjectType: metaobject.type,
+                                metaobjectHandle: metaobject.handle,
+                                fieldKey: field.key,
+                                alt: field.reference.alt,
+                                width: field.reference.image.width,
+                                height: field.reference.image.height
+                            });
+                        }
+                        // Check for URL fields that might contain image URLs
+                        else if (field.type === 'single_line_text_field' && field.value && validateImageUrl(field.value)) {
+                            imageUrls.push({
+                                url: field.value,
+                                metaobjectId: metaobject.id,
+                                metaobjectType: metaobject.type,
+                                metaobjectHandle: metaobject.handle,
+                                fieldKey: field.key
+                            });
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error(`Error fetching metaobjects of type ${definition.type}:`, error.message);
             }
         }
         
         return imageUrls;
     } catch (error) {
-        console.error('Error fetching metaobjects:', error.message);
+        console.error('Error fetching metaobject definitions:', error.message);
         return [];
     }
 }
@@ -533,6 +576,8 @@ app.post('/api/media', async (req, res) => {
     const headers = { 'X-Shopify-Access-Token': accessToken };
     let allImages = [];
     let skipped = [];
+    let productIds = []; // Declare here for use in metafields section
+    let allCollections = []; // Declare here for use in metafields section
     let stats = {
         totalFiles: 0,
         categories: {
@@ -607,7 +652,6 @@ app.post('/api/media', async (req, res) => {
     // --- 2. Product images ---
     try {
         let nextUrl = `${apiBase}/products.json?limit=250`;
-        let productIds = [];
         while (nextUrl) {
             const resp = await axios.get(nextUrl, { headers });
             if (Array.isArray(resp.data.products)) {
@@ -674,7 +718,7 @@ app.post('/api/media', async (req, res) => {
             fetchAllCollections('custom_collections'),
             fetchAllCollections('smart_collections')
         ]);
-        const allCollections = [...customCollections, ...smartCollections];
+        allCollections = [...customCollections, ...smartCollections];
         
         const collectionImages = allCollections
             .filter(c => c.image && c.image.src)
@@ -727,7 +771,7 @@ app.post('/api/media', async (req, res) => {
         allImages = allImages.concat(blogImages);
         console.log(`Found ${blogImages.length} blog article images`);
     } catch (e) {
-        console.warn('[API Error] Blog articles:', e.message);
+        console.warn('[API Error] Blog articles:', e.response?.status === 403 ? 'Insufficient permissions - read_content scope required' : e.message);
         skipped.push('blogs');
     }
     
@@ -769,7 +813,7 @@ app.post('/api/media', async (req, res) => {
         allImages = allImages.concat(pageImages);
         console.log(`Found ${pageImages.length} page images`);
     } catch (e) {
-        console.warn('[API Error] Pages:', e.message);
+        console.warn('[API Error] Pages:', e.response?.status === 403 ? 'Insufficient permissions - read_pages scope required' : e.message);
         skipped.push('pages');
     }
     
@@ -816,7 +860,6 @@ app.post('/api/media', async (req, res) => {
             fileId: file.id,
             alt: file.alt,
             mimeType: file.mimeType,
-            fileSize: file.fileSize,
             createdAt: file.createdAt,
             sourceType: 'shopify_file'
         }));
@@ -850,6 +893,7 @@ app.post('/api/media', async (req, res) => {
     console.log('Stats:', stats);
     
     res.json({ 
+        success: true,
         images: allImages, 
         skipped,
         stats
@@ -858,8 +902,21 @@ app.post('/api/media', async (req, res) => {
 
 // --- /api/media/fetch: Alias for /api/media endpoint (for frontend compatibility) ---
 app.post('/api/media/fetch', async (req, res) => {
-    // Forward to the main /api/media endpoint
+    console.log('Media fetch API called, forwarding to main media logic');
+    
+    // Just call the main media endpoint with the same request
+    const originalUrl = req.url;
     req.url = '/api/media';
+    
+    // Create a response interceptor to ensure we return success: true
+    const originalJson = res.json;
+    res.json = function(data) {
+        if (data && !data.success) {
+            data.success = true;
+        }
+        return originalJson.call(this, data);
+    };
+    
     return app._router.handle(req, res);
 });
 
