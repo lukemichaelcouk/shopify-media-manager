@@ -7,6 +7,7 @@ const sizeOf = require('image-size');
 const imageCalculator = require('./image-calculator');
 const multer = require('multer');
 const sharp = require('sharp');
+const FormData = require('form-data');
 require('dotenv').config();
 
 const app = express();
@@ -23,7 +24,7 @@ if (!SHOPIFY_API_KEY || !SHOPIFY_API_SECRET) {
 }
 
 // Valid Shopify scopes for media management
-const SHOPIFY_SCOPES = 'read_products,write_products,read_themes,write_themes';
+const SHOPIFY_SCOPES = 'read_products,write_products,read_themes,write_themes,read_content,write_content,read_pages,write_pages,read_files,write_files';
 
 // Middleware
 app.use(cors());
@@ -235,6 +236,247 @@ function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+// --- Utility: Extract image URLs from HTML content ---
+function extractImageUrlsFromHtml(htmlContent) {
+    if (!htmlContent || typeof htmlContent !== 'string') return [];
+    
+    const imageRegex = /<img[^>]*src=["']([^"']+)["'][^>]*>/gi;
+    const urls = [];
+    let match;
+    
+    while ((match = imageRegex.exec(htmlContent)) !== null) {
+        const url = match[1];
+        if (url && validateImageUrl(url)) {
+            urls.push(url);
+        }
+    }
+    
+    return urls;
+}
+
+// --- Utility: Fetch metafields for a resource ---
+async function fetchMetafields(resourceType, resourceId, headers, apiBase) {
+    try {
+        const response = await axios.get(`${apiBase}/${resourceType}/${resourceId}/metafields.json`, { headers });
+        return response.data.metafields || [];
+    } catch (error) {
+        console.warn(`Failed to fetch metafields for ${resourceType}/${resourceId}:`, error.message);
+        return [];
+    }
+}
+
+// --- Utility: Extract image URLs from metafields ---
+function extractImageUrlsFromMetafields(metafields) {
+    const imageUrls = [];
+    
+    for (const metafield of metafields) {
+        // Check for file_reference type metafields
+        if (metafield.type === 'file_reference' && metafield.value) {
+            try {
+                const fileData = JSON.parse(metafield.value);
+                if (fileData.url && validateImageUrl(fileData.url)) {
+                    imageUrls.push({
+                        url: fileData.url,
+                        metafieldId: metafield.id,
+                        metafieldKey: metafield.key,
+                        metafieldNamespace: metafield.namespace,
+                        resourceType: metafield.owner_resource,
+                        resourceId: metafield.owner_id
+                    });
+                }
+            } catch (e) {
+                // Try direct URL if JSON parsing fails
+                if (validateImageUrl(metafield.value)) {
+                    imageUrls.push({
+                        url: metafield.value,
+                        metafieldId: metafield.id,
+                        metafieldKey: metafield.key,
+                        metafieldNamespace: metafield.namespace,
+                        resourceType: metafield.owner_resource,
+                        resourceId: metafield.owner_id
+                    });
+                }
+            }
+        }
+        // Check for URL type metafields that might contain image URLs
+        else if (metafield.type === 'url' && metafield.value && validateImageUrl(metafield.value)) {
+            imageUrls.push({
+                url: metafield.value,
+                metafieldId: metafield.id,
+                metafieldKey: metafield.key,
+                metafieldNamespace: metafield.namespace,
+                resourceType: metafield.owner_resource,
+                resourceId: metafield.owner_id
+            });
+        }
+    }
+    
+    return imageUrls;
+}
+
+// --- Utility: GraphQL query for Shopify Files ---
+async function fetchShopifyFiles(shop, accessToken) {
+    const graphqlEndpoint = `https://${shop}/admin/api/2023-10/graphql.json`;
+    const headers = {
+        'X-Shopify-Access-Token': accessToken,
+        'Content-Type': 'application/json'
+    };
+    
+    const query = `
+        query getMediaFiles($first: Int!) {
+            files(first: $first, query: "media_type:IMAGE") {
+                edges {
+                    node {
+                        id
+                        alt
+                        createdAt
+                        fileStatus
+                        ... on MediaImage {
+                            id
+                            alt
+                            image {
+                                url
+                                width
+                                height
+                            }
+                            mimeType
+                            fileSize
+                            originalSource {
+                                url
+                            }
+                        }
+                    }
+                }
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
+            }
+        }
+    `;
+    
+    try {
+        const response = await axios.post(graphqlEndpoint, {
+            query,
+            variables: { first: 100 }
+        }, { headers });
+        
+        if (response.data.errors) {
+            console.error('GraphQL errors:', response.data.errors);
+            return [];
+        }
+        
+        const files = response.data.data?.files?.edges || [];
+        return files.map(edge => ({
+            id: edge.node.id,
+            url: edge.node.image?.url || edge.node.originalSource?.url,
+            alt: edge.node.alt,
+            width: edge.node.image?.width,
+            height: edge.node.image?.height,
+            mimeType: edge.node.mimeType,
+            fileSize: edge.node.fileSize,
+            createdAt: edge.node.createdAt,
+            fileStatus: edge.node.fileStatus
+        })).filter(file => file.url && validateImageUrl(file.url));
+    } catch (error) {
+        console.error('Error fetching Shopify Files:', error.message);
+        return [];
+    }
+}
+
+// --- Utility: GraphQL query for metaobjects ---
+async function fetchMetaobjects(shop, accessToken) {
+    const graphqlEndpoint = `https://${shop}/admin/api/2023-10/graphql.json`;
+    const headers = {
+        'X-Shopify-Access-Token': accessToken,
+        'Content-Type': 'application/json'
+    };
+    
+    const query = `
+        query getMetaobjects($first: Int!) {
+            metaobjects(first: $first) {
+                edges {
+                    node {
+                        id
+                        type
+                        handle
+                        fields {
+                            key
+                            type
+                            value
+                            reference {
+                                ... on MediaImage {
+                                    id
+                                    image {
+                                        url
+                                        width
+                                        height
+                                    }
+                                    alt
+                                }
+                            }
+                        }
+                    }
+                }
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
+            }
+        }
+    `;
+    
+    try {
+        const response = await axios.post(graphqlEndpoint, {
+            query,
+            variables: { first: 100 }
+        }, { headers });
+        
+        if (response.data.errors) {
+            console.error('GraphQL errors:', response.data.errors);
+            return [];
+        }
+        
+        const metaobjects = response.data.data?.metaobjects?.edges || [];
+        const imageUrls = [];
+        
+        for (const edge of metaobjects) {
+            const metaobject = edge.node;
+            
+            for (const field of metaobject.fields) {
+                // Check for file_reference fields with image references
+                if (field.type === 'file_reference' && field.reference?.image?.url) {
+                    imageUrls.push({
+                        url: field.reference.image.url,
+                        metaobjectId: metaobject.id,
+                        metaobjectType: metaobject.type,
+                        metaobjectHandle: metaobject.handle,
+                        fieldKey: field.key,
+                        alt: field.reference.alt,
+                        width: field.reference.image.width,
+                        height: field.reference.image.height
+                    });
+                }
+                // Check for URL fields that might contain image URLs
+                else if (field.type === 'single_line_text_field' && field.value && validateImageUrl(field.value)) {
+                    imageUrls.push({
+                        url: field.value,
+                        metaobjectId: metaobject.id,
+                        metaobjectType: metaobject.type,
+                        metaobjectHandle: metaobject.handle,
+                        fieldKey: field.key
+                    });
+                }
+            }
+        }
+        
+        return imageUrls;
+    } catch (error) {
+        console.error('Error fetching metaobjects:', error.message);
+        return [];
+    }
+}
+
 // Helper function to get image dimensions from URL
 async function getImageDimensions(url) {
     try {
@@ -262,7 +504,22 @@ async function getImageDimensions(url) {
     }
 }
 
-// --- /api/media: Fetch all available image asset URLs (theme, products, collections) ---
+// Helper function to validate and fix image URLs
+function validateImageUrl(url) {
+    if (!url || typeof url !== 'string') {
+        return false;
+    }
+    
+    // Check if it's already a valid HTTP/HTTPS URL
+    try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch (e) {
+        return false;
+    }
+}
+
+// --- /api/media: Fetch all available image asset URLs (theme, products, collections, blogs, pages, metafields, files, metaobjects) ---
 app.post('/api/media', async (req, res) => {
     const { accessToken, shop } = req.body;
     console.log('Media API called for shop:', shop, 'with token:', accessToken ? 'present' : 'missing');
@@ -281,7 +538,12 @@ app.post('/api/media', async (req, res) => {
         categories: {
             theme: 0,
             products: 0,
-            collections: 0
+            collections: 0,
+            blogs: 0,
+            pages: 0,
+            metafields: 0,
+            files: 0,
+            metaobjects: 0
         }
     };
     
@@ -301,6 +563,7 @@ app.post('/api/media', async (req, res) => {
             ...additionalData
         };
     }
+    
     // --- 1. Theme image assets ---
     try {
         console.log('Fetching themes...');
@@ -316,23 +579,16 @@ app.post('/api/media', async (req, res) => {
             const assets = Array.isArray(assetsResp.data.assets) ? assetsResp.data.assets : [];
             console.log(`Found ${assets.length} total assets`);
             
-            // Log some asset examples for debugging
-            const assetExamples = assets.slice(0, 5).map(a => ({ key: a.key, public_url: a.public_url }));
-            console.log('Asset examples:', assetExamples);
-            
             // More inclusive filtering for theme images
             const themeImageUrls = assets
                 .filter(a => {
-                    // Check if asset is an image file
                     const isImage = a.key && a.key.match(/\.(png|jpe?g|gif|webp|svg|ico)$/i);
                     return isImage;
                 })
                 .map(a => {
-                    // For theme assets, construct the proper Shopify CDN URL
                     if (a.public_url) {
                         return a.public_url;
                     } else if (a.key) {
-                        // Standard Shopify theme asset URL format
                         return `https://${shop}/files/${a.key}`;
                     }
                     return null;
@@ -340,36 +596,14 @@ app.post('/api/media', async (req, res) => {
                 .filter(url => url !== null);
             
             console.log(`Found ${themeImageUrls.length} theme image URLs`);
-            console.log('Theme image examples:', themeImageUrls.slice(0, 3));
-            
-            // Add all theme images without metadata
             const themeImages = themeImageUrls.map(url => createImageWithoutMetadata(url, 'theme'));
             allImages = allImages.concat(themeImages);
-        } else {
-            // If no main theme, try to get published theme
-            const publishedTheme = Array.isArray(themesResp.data.themes) ? themesResp.data.themes.find(t => t.role === 'published') : null;
-            if (publishedTheme) {
-                console.log(`No main theme found, using published theme ${publishedTheme.id}`);
-                const assetsResp = await axios.get(`${apiBase}/themes/${publishedTheme.id}/assets.json`, { headers });
-                const assets = Array.isArray(assetsResp.data.assets) ? assetsResp.data.assets : [];
-                
-                const themeImageUrls = assets
-                    .filter(a => {
-                        const isImage = a.key && a.key.match(/\.(png|jpe?g|gif|webp|svg|ico)$/i);
-                        return isImage;
-                    })
-                    .map(a => a.public_url || `https://${shop}/files/${a.key}`)
-                    .filter(url => url !== null);
-                
-                console.log(`Found ${themeImageUrls.length} theme images from published theme`);
-                const themeImages = themeImageUrls.map(url => createImageWithoutMetadata(url, 'theme'));
-                allImages = allImages.concat(themeImages);
-            }
         }
     } catch (e) {
         console.warn('[API Error] Theme assets:', e.message);
         skipped.push('theme');
     }
+    
     // --- 2. Product images ---
     try {
         let nextUrl = `${apiBase}/products.json?limit=250`;
@@ -378,235 +612,6 @@ app.post('/api/media', async (req, res) => {
             const resp = await axios.get(nextUrl, { headers });
             if (Array.isArray(resp.data.products)) {
                 productIds.push(...resp.data.products.map(p => p.id));
-                // Pagination: look for Link header
-                const link = resp.headers['link'];
-                if (link && link.includes('rel="next"')) {
-                    const match = link.match(/<([^>]+)>; rel="next"/);
-                    nextUrl = match ? match[1] : null;
-                } else {
-                    nextUrl = null;
-                }
-            } else {
-                nextUrl = null;
-            }
-        }
-        
-        console.log(`Found ${productIds.length} products, fetching images...`);
-        
-        let productImageUrls = [];
-        for (const id of productIds) { // Process all products
-            try {
-                const imgResp = await axios.get(`${apiBase}/products/${id}/images.json`, { headers });
-                if (Array.isArray(imgResp.data.images)) {
-                    const imageUrls = imgResp.data.images.map(img => img.src).filter(Boolean);
-                    productImageUrls = productImageUrls.concat(imageUrls);
-                }
-            } catch (e) {
-                // skip this product
-            }
-        }
-        
-        console.log(`Found ${productImageUrls.length} product images`);
-        
-        // Add all product images without metadata
-        const productImages = productImageUrls.map(url => createImageWithoutMetadata(url, 'products'));
-        allImages = allImages.concat(productImages);
-    } catch (e) {
-        console.warn('[API Error] Product images:', e.message);
-        skipped.push('products');
-    }
-    // --- 3. Collection images ---
-    try {
-        console.log('Fetching collection images...');
-        // Helper to fetch all paginated collections (custom or smart)
-        async function fetchAllCollections(endpoint) {
-            let collections = [];
-            let nextUrl = `${apiBase}/${endpoint}.json?fields=id,title,handle,image&limit=250`;
-            while (nextUrl) {
-                const resp = await axios.get(nextUrl, { headers });
-                const key = endpoint === 'custom_collections' ? 'custom_collections' : 'smart_collections';
-                if (Array.isArray(resp.data[key])) {
-                    collections.push(...resp.data[key]);
-                }
-                const link = resp.headers['link'];
-                if (link && link.includes('rel="next"')) {
-                    const match = link.match(/<([^>]+)>; rel="next"/);
-                    nextUrl = match ? match[1] : null;
-                } else {
-                    nextUrl = null;
-                }
-            }
-            return collections;
-        }
-        // Fetch all custom and smart collections
-        const [customCollections, smartCollections] = await Promise.all([
-            fetchAllCollections('custom_collections'),
-            fetchAllCollections('smart_collections')
-        ]);
-        const allCollections = [...customCollections, ...smartCollections];
-        
-        // Only collections with images
-        const collectionImages = allCollections
-            .filter(c => c.image && c.image.src)
-            .map(c => createImageWithoutMetadata(c.image.src, 'collections', {
-                collectionId: c.id,
-                collectionTitle: c.title,
-                collectionType: c.handle ? 'custom' : 'smart'
-            }));
-        
-        allImages = allImages.concat(collectionImages);
-        
-        console.log(`Found ${collectionImages.length} collection images (custom+smart)`);
-        if (collectionImages.length === 0) {
-            console.log('ℹ️ No collection images found - collections exist but have no featured images assigned');
-        }
-    } catch (e) {
-        console.warn('[API Error] Collection images:', e.message);
-        skipped.push('collections');
-    }
-    
-    // Update final stats
-    stats.totalFiles = allImages.length;
-    
-    console.log('Media fetch completed.');
-    console.log(`Total images: ${allImages.length}`);
-    console.log('Skipped categories:', skipped);
-    console.log('Stats:', stats);
-    
-    res.json({ 
-        images: allImages, 
-        skipped,
-        stats
-    });
-});
-
-// --- /api/media/fetch: Alias for /api/media endpoint (for frontend compatibility) ---
-app.post('/api/media/fetch', async (req, res) => {
-    const { accessToken, shop } = req.body;
-    console.log('Media fetch API called for shop:', shop, 'with token:', accessToken ? 'present' : 'missing');
-    
-    if (!accessToken || !shop) {
-        console.log('Missing accessToken or shop in request body');
-        return res.status(400).json({ error: 'Missing accessToken or shop' });
-    }
-
-    const apiBase = `https://${shop}/admin/api/2023-10`;
-    const headers = { 'X-Shopify-Access-Token': accessToken };
-    let allImages = [];
-    let skipped = [];
-    let stats = {
-        totalFiles: 0,
-        categories: {
-            theme: 0,
-            products: 0,
-            collections: 0
-        }
-    };
-    
-    console.log('Starting to fetch media for shop:', shop);
-    
-    // Helper function to create image object without metadata
-    function createImageWithoutMetadata(url, category, additionalData = {}) {
-        stats.categories[category]++;
-        return {
-            url,
-            category,
-            size: 0,
-            sizeFormatted: 'Not checked',
-            isLarge: false,
-            width: 0,
-            height: 0,
-            ...additionalData
-        };
-    }
-    
-    // Helper function to safely extract domain
-    function extractDomain(url) {
-        try {
-            return new URL(url).hostname;
-        } catch (e) {
-            return 'unknown';
-        }
-    }
-    
-    // --- 1. Theme image assets ---
-    try {
-        console.log('Fetching themes...');
-        const themesResp = await axios.get(`${apiBase}/themes.json`, { headers });
-        console.log('Themes response:', themesResp.data.themes?.length, 'themes found');
-        
-        const mainTheme = Array.isArray(themesResp.data.themes) ? themesResp.data.themes.find(t => t.role === 'main') : null;
-        console.log('Main theme found:', mainTheme ? `ID ${mainTheme.id}, Name: ${mainTheme.name}` : 'No main theme');
-        
-        if (mainTheme) {
-            console.log(`Fetching assets for theme ${mainTheme.id}...`);
-            const assetsResp = await axios.get(`${apiBase}/themes/${mainTheme.id}/assets.json`, { headers });
-            const assets = Array.isArray(assetsResp.data.assets) ? assetsResp.data.assets : [];
-            console.log(`Found ${assets.length} total assets`);
-            
-            // Log some asset examples for debugging
-            const assetExamples = assets.slice(0, 5).map(a => ({ key: a.key, public_url: a.public_url }));
-            console.log('Asset examples:', assetExamples);
-            
-            // More inclusive filtering for theme images
-            const themeImageUrls = assets
-                .filter(a => {
-                    // Check if asset is an image file
-                    const isImage = a.key && a.key.match(/\.(png|jpe?g|gif|webp|svg|ico)$/i);
-                    return isImage;
-                })
-                .map(a => {
-                    // For theme assets, construct the proper Shopify CDN URL
-                    if (a.public_url) {
-                        return a.public_url;
-                    } else if (a.key) {
-                        // Standard Shopify theme asset URL format
-                        return `https://${shop}/files/${a.key}`;
-                    }
-                    return null;
-                })
-                .filter(url => url !== null);
-            
-            console.log(`Found ${themeImageUrls.length} theme image URLs`);
-            console.log('Theme image examples:', themeImageUrls.slice(0, 3));
-            
-            // Add all theme images without metadata
-            const themeImages = themeImageUrls.map(url => createImageWithoutMetadata(url, 'theme'));
-            allImages = allImages.concat(themeImages);
-        } else {
-            // If no main theme, try to get published theme
-            const publishedTheme = Array.isArray(themesResp.data.themes) ? themesResp.data.themes.find(t => t.role === 'published') : null;
-            if (publishedTheme) {
-                console.log(`No main theme found, using published theme ${publishedTheme.id}`);
-                const assetsResp = await axios.get(`${apiBase}/themes/${publishedTheme.id}/assets.json`, { headers });
-                const assets = Array.isArray(assetsResp.data.assets) ? assetsResp.data.assets : [];
-                
-                const themeImageUrls = assets
-                    .filter(a => {
-                        const isImage = a.key && a.key.match(/\.(png|jpe?g|gif|webp|svg|ico)$/i);
-                        return isImage;
-                    })
-                    .map(a => a.public_url || `https://${shop}/files/${a.key}`)
-                    .filter(url => url !== null);
-                
-                console.log(`Found ${themeImageUrls.length} theme images from published theme`);
-                const themeImages = themeImageUrls.map(url => createImageWithoutMetadata(url, 'theme'));
-                allImages = allImages.concat(themeImages);
-            }
-        }
-    } catch (e) {
-        console.warn('[API Error] Theme assets:', e.message);
-        skipped.push('theme');
-    }
-    // Product images
-    try {
-        let nextUrl = `${apiBase}/products.json?limit=250`;
-        let productIds = [];
-        while (nextUrl) {
-            const resp = await axios.get(nextUrl, { headers });
-            if (Array.isArray(resp.data.products)) {
-                productIds.push(...resp.data.products.map(p => p.id));
-                // Pagination: look for Link header
                 const link = resp.headers['link'];
                 if (link && link.includes('rel="next"')) {
                     const match = link.match(/<([^>]+)>; rel="next"/);
@@ -634,23 +639,20 @@ app.post('/api/media/fetch', async (req, res) => {
             }
         }
         
-        const productImages = productImageUrls
-            .filter(url => validateImageUrl(url))
-            .map(url => createImageWithoutMetadata(url, 'products', {
-                domain: extractDomain(url)
-            }));
-        
+        console.log(`Found ${productImageUrls.length} product images`);
+        const productImages = productImageUrls.map(url => createImageWithoutMetadata(url, 'products'));
         allImages = allImages.concat(productImages);
-        console.log(`Found ${productImages.length} product images`);
     } catch (e) {
         console.warn('[API Error] Product images:', e.message);
         skipped.push('products');
     }
-    // Collection images
+    
+    // --- 3. Collection images ---
     try {
+        console.log('Fetching collection images...');
         async function fetchAllCollections(endpoint) {
-            let nextUrl = `${apiBase}/${endpoint}.json?limit=250`;
-            const collections = [];
+            let collections = [];
+            let nextUrl = `${apiBase}/${endpoint}.json?fields=id,title,handle,image&limit=250`;
             while (nextUrl) {
                 const resp = await axios.get(nextUrl, { headers });
                 const key = endpoint === 'custom_collections' ? 'custom_collections' : 'smart_collections';
@@ -668,16 +670,14 @@ app.post('/api/media/fetch', async (req, res) => {
             return collections;
         }
         
-        // Fetch all custom and smart collections
         const [customCollections, smartCollections] = await Promise.all([
             fetchAllCollections('custom_collections'),
             fetchAllCollections('smart_collections')
         ]);
         const allCollections = [...customCollections, ...smartCollections];
         
-        // Only collections with images
         const collectionImages = allCollections
-            .filter(c => c.image && c.image.src && validateImageUrl(c.image.src))
+            .filter(c => c.image && c.image.src)
             .map(c => createImageWithoutMetadata(c.image.src, 'collections', {
                 collectionId: c.id,
                 collectionTitle: c.title,
@@ -685,11 +685,160 @@ app.post('/api/media/fetch', async (req, res) => {
             }));
         
         allImages = allImages.concat(collectionImages);
-        
-        console.log(`Found ${collectionImages.length} collection images`);
+        console.log(`Found ${collectionImages.length} collection images (custom+smart)`);
     } catch (e) {
         console.warn('[API Error] Collection images:', e.message);
         skipped.push('collections');
+    }
+    
+    // --- 4. Blog article images ---
+    try {
+        console.log('Fetching blog articles...');
+        const blogsResp = await axios.get(`${apiBase}/blogs.json`, { headers });
+        const blogs = blogsResp.data.blogs || [];
+        
+        let blogImageUrls = [];
+        for (const blog of blogs) {
+            try {
+                const articlesResp = await axios.get(`${apiBase}/blogs/${blog.id}/articles.json`, { headers });
+                const articles = articlesResp.data.articles || [];
+                
+                for (const article of articles) {
+                    if (article.content) {
+                        const imageUrls = extractImageUrlsFromHtml(article.content);
+                        for (const url of imageUrls) {
+                            blogImageUrls.push({
+                                url,
+                                blogId: blog.id,
+                                blogTitle: blog.title,
+                                articleId: article.id,
+                                articleTitle: article.title,
+                                sourceType: 'blog_article'
+                            });
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn(`Failed to fetch articles for blog ${blog.id}:`, e.message);
+            }
+        }
+        
+        const blogImages = blogImageUrls.map(data => createImageWithoutMetadata(data.url, 'blogs', data));
+        allImages = allImages.concat(blogImages);
+        console.log(`Found ${blogImages.length} blog article images`);
+    } catch (e) {
+        console.warn('[API Error] Blog articles:', e.message);
+        skipped.push('blogs');
+    }
+    
+    // --- 5. Page images ---
+    try {
+        console.log('Fetching pages...');
+        let nextUrl = `${apiBase}/pages.json?limit=250`;
+        let pageImageUrls = [];
+        
+        while (nextUrl) {
+            const resp = await axios.get(nextUrl, { headers });
+            const pages = resp.data.pages || [];
+            
+            for (const page of pages) {
+                if (page.body_html) {
+                    const imageUrls = extractImageUrlsFromHtml(page.body_html);
+                    for (const url of imageUrls) {
+                        pageImageUrls.push({
+                            url,
+                            pageId: page.id,
+                            pageTitle: page.title,
+                            pageHandle: page.handle,
+                            sourceType: 'page'
+                        });
+                    }
+                }
+            }
+            
+            const link = resp.headers['link'];
+            if (link && link.includes('rel="next"')) {
+                const match = link.match(/<([^>]+)>; rel="next"/);
+                nextUrl = match ? match[1] : null;
+            } else {
+                nextUrl = null;
+            }
+        }
+        
+        const pageImages = pageImageUrls.map(data => createImageWithoutMetadata(data.url, 'pages', data));
+        allImages = allImages.concat(pageImages);
+        console.log(`Found ${pageImages.length} page images`);
+    } catch (e) {
+        console.warn('[API Error] Pages:', e.message);
+        skipped.push('pages');
+    }
+    
+    // --- 6. Metafield images ---
+    try {
+        console.log('Fetching metafield images...');
+        let metafieldImageUrls = [];
+        
+        // Fetch metafields for products
+        for (const id of productIds.slice(0, 50)) { // Limit to first 50 products to avoid timeout
+            try {
+                const metafields = await fetchMetafields('products', id, headers, apiBase);
+                const imageUrls = extractImageUrlsFromMetafields(metafields);
+                metafieldImageUrls = metafieldImageUrls.concat(imageUrls);
+            } catch (e) {
+                // Skip this product
+            }
+        }
+        
+        // Fetch metafields for collections
+        for (const collection of allCollections.slice(0, 50)) { // Limit to first 50 collections
+            try {
+                const metafields = await fetchMetafields('collections', collection.id, headers, apiBase);
+                const imageUrls = extractImageUrlsFromMetafields(metafields);
+                metafieldImageUrls = metafieldImageUrls.concat(imageUrls);
+            } catch (e) {
+                // Skip this collection
+            }
+        }
+        
+        const metafieldImages = metafieldImageUrls.map(data => createImageWithoutMetadata(data.url, 'metafields', data));
+        allImages = allImages.concat(metafieldImages);
+        console.log(`Found ${metafieldImages.length} metafield images`);
+    } catch (e) {
+        console.warn('[API Error] Metafields:', e.message);
+        skipped.push('metafields');
+    }
+    
+    // --- 7. Shopify Files ---
+    try {
+        console.log('Fetching Shopify Files...');
+        const shopifyFiles = await fetchShopifyFiles(shop, accessToken);
+        const fileImages = shopifyFiles.map(file => createImageWithoutMetadata(file.url, 'files', {
+            fileId: file.id,
+            alt: file.alt,
+            mimeType: file.mimeType,
+            fileSize: file.fileSize,
+            createdAt: file.createdAt,
+            sourceType: 'shopify_file'
+        }));
+        
+        allImages = allImages.concat(fileImages);
+        console.log(`Found ${fileImages.length} Shopify File images`);
+    } catch (e) {
+        console.warn('[API Error] Shopify Files:', e.message);
+        skipped.push('files');
+    }
+    
+    // --- 8. Metaobject images ---
+    try {
+        console.log('Fetching metaobject images...');
+        const metaobjectImageUrls = await fetchMetaobjects(shop, accessToken);
+        const metaobjectImages = metaobjectImageUrls.map(data => createImageWithoutMetadata(data.url, 'metaobjects', data));
+        
+        allImages = allImages.concat(metaobjectImages);
+        console.log(`Found ${metaobjectImages.length} metaobject images`);
+    } catch (e) {
+        console.warn('[API Error] Metaobjects:', e.message);
+        skipped.push('metaobjects');
     }
     
     // Update final stats
@@ -701,11 +850,17 @@ app.post('/api/media/fetch', async (req, res) => {
     console.log('Stats:', stats);
     
     res.json({ 
-        success: true,
         images: allImages, 
         skipped,
         stats
     });
+});
+
+// --- /api/media/fetch: Alias for /api/media endpoint (for frontend compatibility) ---
+app.post('/api/media/fetch', async (req, res) => {
+    // Forward to the main /api/media endpoint
+    req.url = '/api/media';
+    return app._router.handle(req, res);
 });
 
 // --- /api/media/analyze: Re-analyze images with metadata (size, dimensions, optimization analysis) ---
@@ -735,21 +890,17 @@ app.post('/api/media/analyze', async (req, res) => {
                 if (image.category === 'collections') {
                     imageType = 'collection';
                 } else if (image.category === 'theme') {
-                    // For theme images, try to guess type from filename/path
                     const url = image.url.toLowerCase();
                     if (url.includes('banner') || url.includes('hero') || url.includes('slider')) {
                         imageType = 'banner';
                     } else if (url.includes('thumb') || url.includes('icon') || url.includes('logo')) {
                         imageType = 'thumbnail';
                     } else {
-                        imageType = 'banner'; // default for theme images
+                        imageType = 'banner';
                     }
                 }
                 
-                // Calculate if image is "large" (>1MB)
                 const isLarge = sizeInBytes > 1048576;
-                
-                // Calculate aspect ratio
                 const aspectRatio = dimensions.width && dimensions.height ? 
                     (dimensions.width / dimensions.height).toFixed(2) : 'unknown';
                 
@@ -776,7 +927,6 @@ app.post('/api/media/analyze', async (req, res) => {
                     return 'UNKNOWN';
                 };
                 
-                // Enhanced image analysis object
                 const enhancedImage = {
                     ...image,
                     size: sizeInBytes,
@@ -862,7 +1012,7 @@ const upload = multer({
     }
 });
 
-// --- /api/media/replace: Replace any Shopify image (product, collection, asset, or theme file) ---
+// --- /api/media/replace: Replace any Shopify image (product, collection, asset, theme file, blog, page, metafield, file, metaobject) ---
 app.post('/api/media/replace', upload.single('image'), async (req, res) => {
     const { shop, accessToken, originalUrl, category } = req.body;
     
@@ -880,14 +1030,13 @@ app.post('/api/media/replace', upload.single('image'), async (req, res) => {
         const apiBase = `https://${shop}/admin/api/2023-10`;
         const headers = { 'X-Shopify-Access-Token': accessToken };
         
-        // Get image dimensions
         const dimensions = (sizeOf.imageSize || sizeOf.default || sizeOf)(processedBuffer);
         
         console.log(`Replacing ${category} image: ${originalUrl}`);
         console.log(`New image size: ${processedSize} bytes, dimensions: ${dimensions.width}x${dimensions.height}`);
         
-        // Step 1: Detect image type and handle accordingly
-        const imageType = detectImageType(originalUrl, category);
+        // Detect image type and handle accordingly
+        const imageType = detectImageType(originalUrl, category, req.body);
         console.log('Detected image type:', imageType);
         
         let result;
@@ -903,6 +1052,18 @@ app.post('/api/media/replace', upload.single('image'), async (req, res) => {
                 break;
             case 'file':
                 result = await replaceShopifyFile(shop, accessToken, originalUrl, processedBuffer, imageType, headers, apiBase);
+                break;
+            case 'blog':
+                result = await replaceBlogImage(shop, accessToken, originalUrl, processedBuffer, imageType, headers, apiBase);
+                break;
+            case 'page':
+                result = await replacePageImage(shop, accessToken, originalUrl, processedBuffer, imageType, headers, apiBase);
+                break;
+            case 'metafield':
+                result = await replaceMetafieldImage(shop, accessToken, originalUrl, processedBuffer, imageType, headers, apiBase);
+                break;
+            case 'metaobject':
+                result = await replaceMetaobjectImage(shop, accessToken, originalUrl, processedBuffer, imageType, headers, apiBase);
                 break;
             default:
                 throw new Error(`Unsupported image type: ${imageType.type}`);
@@ -928,13 +1089,561 @@ app.post('/api/media/replace', upload.single('image'), async (req, res) => {
     }
 });
 
-// Utility function to format file size
-function formatFileSize(bytes) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+// --- Image Replacement Helper Functions ---
+
+// Step 1: Detect image type (product, collection, file, theme asset, blog, page, metafield, metaobject)
+function detectImageType(url, category, additionalData = {}) {
+    console.log(`Detecting image type for URL: ${url}, category: ${category}`);
+    
+    // Check additional data for specific identifiers
+    if (additionalData.metafieldId) {
+        return {
+            type: 'metafield',
+            metafieldId: additionalData.metafieldId,
+            resourceType: additionalData.resourceType,
+            resourceId: additionalData.resourceId
+        };
+    }
+    
+    if (additionalData.metaobjectId) {
+        return {
+            type: 'metaobject',
+            metaobjectId: additionalData.metaobjectId,
+            fieldKey: additionalData.fieldKey
+        };
+    }
+    
+    if (additionalData.fileId) {
+        return {
+            type: 'file',
+            fileId: additionalData.fileId
+        };
+    }
+    
+    if (additionalData.blogId) {
+        return {
+            type: 'blog',
+            blogId: additionalData.blogId,
+            articleId: additionalData.articleId
+        };
+    }
+    
+    if (additionalData.pageId) {
+        return {
+            type: 'page',
+            pageId: additionalData.pageId
+        };
+    }
+    
+    // Parse URL to extract information
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname;
+    
+    // Product images
+    if (pathname.includes('/products/') && pathname.includes('/images/')) {
+        const productMatch = pathname.match(/\/products\/(\d+)/);
+        const imageMatch = pathname.match(/\/images\/(\d+)/);
+        return {
+            type: 'product',
+            productId: productMatch ? productMatch[1] : null,
+            imageId: imageMatch ? imageMatch[1] : null
+        };
+    }
+    
+    // Collection images
+    if (pathname.includes('/collections/') || category === 'collections') {
+        const collectionMatch = pathname.match(/\/collections\/(.+?)\//);
+        return {
+            type: 'collection',
+            collectionHandle: collectionMatch ? collectionMatch[1] : null
+        };
+    }
+    
+    // Theme assets
+    if (pathname.includes('/t/') && pathname.includes('/assets/')) {
+        const themeMatch = pathname.match(/\/t\/(\d+)/);
+        const assetMatch = pathname.match(/\/assets\/(.+)$/);
+        return {
+            type: 'theme',
+            themeId: themeMatch ? themeMatch[1] : null,
+            assetKey: assetMatch ? `assets/${assetMatch[1]}` : null
+        };
+    }
+    
+    // Generic files
+    if (pathname.includes('/files/')) {
+        const fileMatch = pathname.match(/\/files\/(.+)$/);
+        return {
+            type: 'file',
+            fileName: fileMatch ? fileMatch[1] : null
+        };
+    }
+    
+    // Default based on category
+    if (category === 'products') {
+        return { type: 'product', productId: null, imageId: null };
+    }
+    
+    if (category === 'theme') {
+        return { type: 'theme', themeId: null, assetKey: null };
+    }
+    
+    // Fallback to file type
+    return { type: 'file', fileName: null };
+}
+
+// Replacement functions for different image types
+async function replaceProductImage(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase) {
+    console.log('Replacing product image...');
+    
+    try {
+        if (imageType.productId && imageType.imageId) {
+            const base64Image = imageBuffer.toString('base64');
+            
+            const updateResponse = await axios.put(
+                `${apiBase}/products/${imageType.productId}/images/${imageType.imageId}.json`,
+                {
+                    image: {
+                        attachment: base64Image,
+                        filename: `updated_${Date.now()}.jpg`
+                    }
+                },
+                { headers }
+            );
+            
+            return {
+                newUrl: updateResponse.data.image.src,
+                resourceId: updateResponse.data.image.id
+            };
+        } else {
+            // Need to find the product and image by searching through products
+            console.log('Searching for product image by URL...');
+            
+            let foundProduct = null;
+            let foundImage = null;
+            
+            // Get all products and search for matching image URL
+            let nextUrl = `${apiBase}/products.json?limit=250`;
+            while (nextUrl && !foundProduct) {
+                const resp = await axios.get(nextUrl, { headers });
+                const products = resp.data.products || [];
+                
+                for (const product of products) {
+                    const imgResp = await axios.get(`${apiBase}/products/${product.id}/images.json`, { headers });
+                    const images = imgResp.data.images || [];
+                    
+                    for (const image of images) {
+                        if (image.src === originalUrl) {
+                            foundProduct = product;
+                            foundImage = image;
+                            break;
+                        }
+                    }
+                    
+                    if (foundProduct) break;
+                }
+                
+                // Check for pagination
+                const link = resp.headers['link'];
+                if (link && link.includes('rel="next"')) {
+                    const match = link.match(/<([^>]+)>; rel="next"/);
+                    nextUrl = match ? match[1] : null;
+                } else {
+                    nextUrl = null;
+                }
+            }
+            
+            if (!foundProduct || !foundImage) {
+                throw new Error('Product image not found');
+            }
+            
+            // Now replace the found image
+            const base64Image = imageBuffer.toString('base64');
+            
+            const updateResponse = await axios.put(
+                `${apiBase}/products/${foundProduct.id}/images/${foundImage.id}.json`,
+                {
+                    image: {
+                        attachment: base64Image,
+                        filename: `updated_${Date.now()}.jpg`
+                    }
+                },
+                { headers }
+            );
+            
+            return {
+                newUrl: updateResponse.data.image.src,
+                resourceId: updateResponse.data.image.id
+            };
+        }
+    } catch (error) {
+        console.error('Error replacing product image:', error.message);
+        throw error;
+    }
+}
+
+async function replaceCollectionImage(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase) {
+    console.log('Replacing collection image...');
+    
+    try {
+        // Find the collection by searching through all collections
+        let foundCollection = null;
+        
+        // Check custom collections
+        const customResp = await axios.get(`${apiBase}/custom_collections.json`, { headers });
+        const customCollections = customResp.data.custom_collections || [];
+        
+        for (const collection of customCollections) {
+            if (collection.image && collection.image.src === originalUrl) {
+                foundCollection = { ...collection, type: 'custom' };
+                break;
+            }
+        }
+        
+        // Check smart collections if not found in custom
+        if (!foundCollection) {
+            const smartResp = await axios.get(`${apiBase}/smart_collections.json`, { headers });
+            const smartCollections = smartResp.data.smart_collections || [];
+            
+            for (const collection of smartCollections) {
+                if (collection.image && collection.image.src === originalUrl) {
+                    foundCollection = { ...collection, type: 'smart' };
+                    break;
+                }
+            }
+        }
+        
+        if (!foundCollection) {
+            throw new Error('Collection image not found');
+        }
+        
+        // Upload the new image as a file first
+        const base64Image = imageBuffer.toString('base64');
+        const endpoint = foundCollection.type === 'custom' ? 'custom_collections' : 'smart_collections';
+        
+        const updateResponse = await axios.put(
+            `${apiBase}/${endpoint}/${foundCollection.id}.json`,
+            {
+                [foundCollection.type === 'custom' ? 'custom_collection' : 'smart_collection']: {
+                    id: foundCollection.id,
+                    image: {
+                        attachment: base64Image,
+                        filename: `collection_${Date.now()}.jpg`
+                    }
+                }
+            },
+            { headers }
+        );
+        
+        const collectionData = updateResponse.data[foundCollection.type === 'custom' ? 'custom_collection' : 'smart_collection'];
+        
+        return {
+            newUrl: collectionData.image.src,
+            resourceId: collectionData.id
+        };
+    } catch (error) {
+        console.error('Error replacing collection image:', error.message);
+        throw error;
+    }
+}
+
+async function replaceThemeAsset(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase) {
+    console.log('Replacing theme asset...');
+    throw new Error('Theme asset replacement not yet implemented');
+}
+
+async function replaceShopifyFile(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase) {
+    console.log('Replacing Shopify file...');
+    
+    try {
+        // For Shopify Files, we need to create a new file and then delete the old one
+        const graphqlEndpoint = `https://${shop}/admin/api/2023-10/graphql.json`;
+        const graphqlHeaders = {
+            'X-Shopify-Access-Token': accessToken,
+            'Content-Type': 'application/json'
+        };
+        
+        // Convert buffer to base64
+        const base64Image = imageBuffer.toString('base64');
+        
+        // Create staged upload for the new file
+        const stagedUploadMutation = `
+            mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
+                stagedUploadsCreate(input: $input) {
+                    stagedUploads {
+                        resourceUrl
+                        url
+                        parameters {
+                            name
+                            value
+                        }
+                    }
+                    userErrors {
+                        field
+                        message
+                    }
+                }
+            }
+        `;
+        
+        const stagedUploadResponse = await axios.post(graphqlEndpoint, {
+            query: stagedUploadMutation,
+            variables: {
+                input: [{
+                    filename: `replacement_${Date.now()}.jpg`,
+                    mimeType: 'image/jpeg',
+                    httpMethod: 'POST'
+                }]
+            }
+        }, { headers: graphqlHeaders });
+        
+        if (stagedUploadResponse.data.errors) {
+            throw new Error('Failed to create staged upload: ' + JSON.stringify(stagedUploadResponse.data.errors));
+        }
+        
+        const stagedUpload = stagedUploadResponse.data.data.stagedUploadsCreate.stagedUploads[0];
+        
+        // Upload the file to the staged upload URL
+        const formData = new FormData();
+        stagedUpload.parameters.forEach(param => {
+            formData.append(param.name, param.value);
+        });
+        formData.append('file', imageBuffer, `replacement_${Date.now()}.jpg`);
+        
+        await axios.post(stagedUpload.url, formData, {
+            headers: {
+                ...formData.getHeaders()
+            }
+        });
+        
+        // Create the file in Shopify
+        const fileCreateMutation = `
+            mutation fileCreate($files: [FileCreateInput!]!) {
+                fileCreate(files: $files) {
+                    files {
+                        id
+                        ... on MediaImage {
+                            image {
+                                url
+                            }
+                        }
+                    }
+                    userErrors {
+                        field
+                        message
+                    }
+                }
+            }
+        `;
+        
+        const fileCreateResponse = await axios.post(graphqlEndpoint, {
+            query: fileCreateMutation,
+            variables: {
+                files: [{
+                    originalSource: stagedUpload.resourceUrl,
+                    contentType: 'IMAGE'
+                }]
+            }
+        }, { headers: graphqlHeaders });
+        
+        if (fileCreateResponse.data.errors) {
+            throw new Error('Failed to create file: ' + JSON.stringify(fileCreateResponse.data.errors));
+        }
+        
+        const newFile = fileCreateResponse.data.data.fileCreate.files[0];
+        
+        return {
+            newUrl: newFile.image.url,
+            resourceId: newFile.id
+        };
+    } catch (error) {
+        console.error('Error replacing Shopify file:', error.message);
+        throw error;
+    }
+}
+
+async function replaceBlogImage(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase) {
+    console.log('Replacing blog image...');
+    
+    try {
+        // Blog images are embedded in HTML content, so we need to:
+        // 1. Upload the new image as a file
+        // 2. Update the blog article content to reference the new image
+        
+        if (!imageType.blogId || !imageType.articleId) {
+            throw new Error('Missing blog ID or article ID for blog image replacement');
+        }
+        
+        // First, upload the new image as a Shopify file
+        const newFileResult = await replaceShopifyFile(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase);
+        
+        // Get the current article content
+        const articleResp = await axios.get(`${apiBase}/blogs/${imageType.blogId}/articles/${imageType.articleId}.json`, { headers });
+        const article = articleResp.data.article;
+        
+        // Replace the old image URL with the new one in the content
+        const updatedContent = article.content.replace(new RegExp(originalUrl, 'g'), newFileResult.newUrl);
+        
+        // Update the article with the new content
+        const updateResponse = await axios.put(
+            `${apiBase}/blogs/${imageType.blogId}/articles/${imageType.articleId}.json`,
+            {
+                article: {
+                    id: article.id,
+                    content: updatedContent
+                }
+            },
+            { headers }
+        );
+        
+        return {
+            newUrl: newFileResult.newUrl,
+            resourceId: updateResponse.data.article.id
+        };
+    } catch (error) {
+        console.error('Error replacing blog image:', error.message);
+        throw error;
+    }
+}
+
+async function replacePageImage(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase) {
+    console.log('Replacing page image...');
+    
+    try {
+        // Page images are embedded in HTML content, similar to blog images
+        
+        if (!imageType.pageId) {
+            throw new Error('Missing page ID for page image replacement');
+        }
+        
+        // First, upload the new image as a Shopify file
+        const newFileResult = await replaceShopifyFile(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase);
+        
+        // Get the current page content
+        const pageResp = await axios.get(`${apiBase}/pages/${imageType.pageId}.json`, { headers });
+        const page = pageResp.data.page;
+        
+        // Replace the old image URL with the new one in the content
+        const updatedContent = page.body_html.replace(new RegExp(originalUrl, 'g'), newFileResult.newUrl);
+        
+        // Update the page with the new content
+        const updateResponse = await axios.put(
+            `${apiBase}/pages/${imageType.pageId}.json`,
+            {
+                page: {
+                    id: page.id,
+                    body_html: updatedContent
+                }
+            },
+            { headers }
+        );
+        
+        return {
+            newUrl: newFileResult.newUrl,
+            resourceId: updateResponse.data.page.id
+        };
+    } catch (error) {
+        console.error('Error replacing page image:', error.message);
+        throw error;
+    }
+}
+
+async function replaceMetafieldImage(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase) {
+    console.log('Replacing metafield image...');
+    
+    try {
+        if (!imageType.metafieldId) {
+            throw new Error('Missing metafield ID for metafield image replacement');
+        }
+        
+        // First, upload the new image as a Shopify file
+        const newFileResult = await replaceShopifyFile(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase);
+        
+        // Update the metafield with the new image URL
+        const updateResponse = await axios.put(
+            `${apiBase}/metafields/${imageType.metafieldId}.json`,
+            {
+                metafield: {
+                    id: imageType.metafieldId,
+                    value: newFileResult.newUrl,
+                    type: 'url'
+                }
+            },
+            { headers }
+        );
+        
+        return {
+            newUrl: newFileResult.newUrl,
+            resourceId: updateResponse.data.metafield.id
+        };
+    } catch (error) {
+        console.error('Error replacing metafield image:', error.message);
+        throw error;
+    }
+}
+
+async function replaceMetaobjectImage(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase) {
+    console.log('Replacing metaobject image...');
+    
+    try {
+        if (!imageType.metaobjectId || !imageType.fieldKey) {
+            throw new Error('Missing metaobject ID or field key for metaobject image replacement');
+        }
+        
+        // First, upload the new image as a Shopify file
+        const newFileResult = await replaceShopifyFile(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase);
+        
+        // Update the metaobject field using GraphQL
+        const graphqlEndpoint = `https://${shop}/admin/api/2023-10/graphql.json`;
+        const graphqlHeaders = {
+            'X-Shopify-Access-Token': accessToken,
+            'Content-Type': 'application/json'
+        };
+        
+        const updateMutation = `
+            mutation metaobjectUpdate($id: ID!, $metaobject: MetaobjectUpdateInput!) {
+                metaobjectUpdate(id: $id, metaobject: $metaobject) {
+                    metaobject {
+                        id
+                        handle
+                        fields {
+                            key
+                            value
+                        }
+                    }
+                    userErrors {
+                        field
+                        message
+                    }
+                }
+            }
+        `;
+        
+        const updateResponse = await axios.post(graphqlEndpoint, {
+            query: updateMutation,
+            variables: {
+                id: imageType.metaobjectId,
+                metaobject: {
+                    fields: [{
+                        key: imageType.fieldKey,
+                        value: newFileResult.resourceId // Use the file ID for file_reference fields
+                    }]
+                }
+            }
+        }, { headers: graphqlHeaders });
+        
+        if (updateResponse.data.errors) {
+            throw new Error('GraphQL error: ' + JSON.stringify(updateResponse.data.errors));
+        }
+        
+        return {
+            newUrl: newFileResult.newUrl,
+            resourceId: updateResponse.data.data.metaobjectUpdate.metaobject.id
+        };
+    } catch (error) {
+        console.error('Error replacing metaobject image:', error.message);
+        throw error;
+    }
 }
 
 // Get Shopify API key (safe to expose)
@@ -954,24 +1663,50 @@ app.get('/api/health', (req, res) => {
     });
 });
 
+// Validate Shopify access token
+app.post('/api/validate-token', async (req, res) => {
+    const { shop, accessToken } = req.body;
+    if (!shop || !accessToken) {
+        return res.status(400).json({ error: 'Missing shop or accessToken', valid: false });
+    }
+    
+    try {
+        const response = await axios.get(`https://${shop}/admin/api/2023-10/shop.json`, {
+            headers: { 'X-Shopify-Access-Token': accessToken },
+            timeout: 10000
+        });
+        
+        if (response.data && response.data.shop) {
+            res.json({ valid: true, shop: response.data.shop });
+        } else {
+            res.json({ valid: false, error: 'Invalid response from Shopify' });
+        }
+    } catch (error) {
+        console.error('Token validation error:', error.response?.data || error.message);
+        
+        if (error.response?.status === 401 || error.response?.status === 403) {
+            res.json({ valid: false, error: 'Invalid or expired token' });
+        } else {
+            res.json({ valid: false, error: 'Token validation failed' });
+        }
+    }
+});
+
 // Shopify app installation endpoint (handles initial app installation)
 app.get('/', (req, res) => {
     const { shop, hmac, timestamp, host } = req.query;
     
-    // If this is a Shopify app installation request
     if (shop && hmac) {
         console.log('Shopify app installation request detected:', { shop, hmac, timestamp });
         
-        // Validate required environment variables
         if (!SHOPIFY_API_KEY) {
             console.error('Missing SHOPIFY_API_KEY environment variable');
             return res.status(500).send('Server configuration error: Missing API key');
         }
         
-        // Generate OAuth URL for Shopify installation
         const scopes = SHOPIFY_SCOPES;
         const redirectUri = 'https://app.wearespree.com/auth/callback';
-        const state = Math.random().toString(36).substring(7); // Generate random state
+        const state = Math.random().toString(36).substring(7);
         
         const authUrl = `https://${shop}/admin/oauth/authorize?` + 
             `client_id=${SHOPIFY_API_KEY}&` +
@@ -980,19 +1715,9 @@ app.get('/', (req, res) => {
             `state=${state}`;
         
         console.log('Generated OAuth URL:', authUrl);
-        console.log('OAuth URL components:', {
-            shop,
-            client_id: SHOPIFY_API_KEY,
-            scope: scopes,
-            redirect_uri: redirectUri,
-            state
-        });
-        
-        // Redirect to Shopify OAuth
         return res.redirect(authUrl);
     }
     
-    // Otherwise serve the normal index.html
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
@@ -1006,13 +1731,11 @@ app.get('/install', (req, res) => {
     
     console.log('Custom app installation request for shop:', shop);
     
-    // Validate required environment variables
     if (!SHOPIFY_API_KEY) {
         console.error('Missing SHOPIFY_API_KEY environment variable');
         return res.status(500).send('Server configuration error: Missing API key');
     }
     
-    // Generate OAuth URL for custom app installation (without no_redirect)
     const scopes = SHOPIFY_SCOPES;
     const redirectUri = 'https://app.wearespree.com/auth/callback';
     const state = Math.random().toString(36).substring(7);
@@ -1024,15 +1747,6 @@ app.get('/install', (req, res) => {
         `state=${state}`;
     
     console.log('Generated OAuth URL:', authUrl);
-    console.log('OAuth URL components:', {
-        shop,
-        client_id: SHOPIFY_API_KEY,
-        scope: scopes,
-        redirect_uri: redirectUri,
-        state
-    });
-    
-    // Redirect to Shopify OAuth
     res.redirect(authUrl);
 });
 
@@ -1053,639 +1767,3 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`🔑 Shopify API Key: ${SHOPIFY_API_KEY ? 'Configured' : 'Not configured'}`);
     console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
-
-// Helper function to construct proper Shopify theme asset URLs
-function getThemeAssetUrl(shop, themeId, assetKey) {
-    // Remove .myshopify.com if present to get the store handle
-    const storeHandle = shop.replace('.myshopify.com', '');
-    
-    // Check if assetKey already contains "assets/" prefix and remove it
-    const assetPath = assetKey.startsWith('assets/') ? assetKey.substring(7) : assetKey;
-    
-    // For theme assets, we need to request the asset content to get the public URL
-    // But for now, let's use the asset key to construct a publicly accessible URL
-    // The correct format is through the store's public theme assets
-    return `https://${storeHandle}.myshopify.com/assets/${assetPath}`;
-}
-
-// Helper function to validate and fix image URLs
-function validateImageUrl(url) {
-    if (!url || typeof url !== 'string') {
-        return null;
-    }
-    
-    // Check if it's already a valid HTTP/HTTPS URL
-    try {
-        const parsed = new URL(url);
-        return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? url : null;
-    } catch (e) {
-        return null;
-    }
-}
-
-// Validate Shopify access token
-app.post('/api/validate-token', async (req, res) => {
-    const { shop, accessToken } = req.body;
-    if (!shop || !accessToken) {
-        return res.status(400).json({ error: 'Missing shop or accessToken', valid: false });
-    }
-    
-    try {
-        // Try to fetch shop info to validate the token
-        const response = await axios.get(`https://${shop}/admin/api/2023-10/shop.json`, {
-            headers: { 'X-Shopify-Access-Token': accessToken },
-            timeout: 10000
-        });
-        
-        if (response.data && response.data.shop) {
-            res.json({ valid: true, shop: response.data.shop });
-        } else {
-            res.json({ valid: false, error: 'Invalid response from Shopify' });
-        }
-    } catch (error) {
-        console.error('Token validation error:', error.response?.data || error.message);
-        
-        // Check if it's an authentication error
-        if (error.response?.status === 401 || error.response?.status === 403) {
-            res.json({ valid: false, error: 'Invalid or expired token' });
-        } else {
-            res.json({ valid: false, error: 'Token validation failed' });
-        }
-    }
-});
-
-// --- DEBUG: /api/debug/collections: Inspect collection data structure ---
-app.post('/api/debug/collections', async (req, res) => {
-    const { accessToken, shop } = req.body;
-    if (!accessToken || !shop) return res.status(400).json({ error: 'Missing accessToken or shop' });
-    const apiBase = `https://${shop}/admin/api/2023-10`;
-    const headers = { 'X-Shopify-Access-Token': accessToken };
-    
-    try {
-        console.log('DEBUG: Collections data structure for shop:', shop);
-        
-        // Fetch first few custom collections for debugging
-        const customResp = await axios.get(`${apiBase}/custom_collections.json?limit=5`, { headers });
-        console.log('DEBUG: Custom collections response:', JSON.stringify(customResp.data, null, 2));
-        
-        // Fetch first few smart collections for debugging
-        const smartResp = await axios.get(`${apiBase}/smart_collections.json?limit=5`, { headers });
-        console.log('DEBUG: Smart collections response:', JSON.stringify(smartResp.data, null, 2));
-        
-        res.json({
-            custom_collections: customResp.data.custom_collections || [],
-            smart_collections: smartResp.data.smart_collections || []
-        });
-        
-    } catch (e) {
-        console.error('DEBUG: Collections error:', e.message);
-        res.status(500).json({ error: 'Failed to fetch collections' });
-    }
-});
-
-// --- /api/image-details: Get detailed metadata for specific images ---
-app.post('/api/image-details', async (req, res) => {
-    const { urls } = req.body;
-    
-    if (!urls || !Array.isArray(urls)) {
-        return res.status(400).json({ error: 'Missing urls array' });
-    }
-    
-    console.log(`Getting detailed metadata for ${urls.length} images`);
-    
-    try {
-        const imageDetails = await Promise.all(
-            urls.map(async (url) => {
-                try {
-                    // Get file size
-                    const headResponse = await axios.head(url, { timeout: 10000 });
-                    const size = parseInt(headResponse.headers['content-length']) || 0;
-                    const isLarge = size > 1024 * 1024; // > 1MB
-                    
-                    // Get dimensions
-                    const dimensions = await getImageDimensions(url);
-                    
-                    return {
-                        url,
-                        size,
-                        sizeFormatted: formatFileSize(size),
-                        isLarge,
-                        width: dimensions.width,
-                        height: dimensions.height,
-                        type: dimensions.type,
-                        aspectRatio: dimensions.width && dimensions.height ? 
-                            (dimensions.width / dimensions.height).toFixed(2) : 'unknown'
-                    };
-                } catch (error) {
-                    console.warn(`Failed to get details for ${url}:`, error.message);
-                    return {
-                        url,
-                        size: 0,
-                        sizeFormatted: 'Unknown',
-                        isLarge: false,
-                        width: 0,
-                        height: 0,
-                        type: 'unknown',
-                        aspectRatio: 'unknown',
-                        error: error.message
-                    };
-                }
-            })
-        );
-        
-        res.json({ images: imageDetails });
-    } catch (error) {
-        console.error('Error getting image details:', error.message);
-        res.status(500).json({ error: 'Failed to get image details', details: error.message });
-    }
-});
-
-// Debug endpoint to inspect theme assets
-app.post('/api/debug/theme-assets', async (req, res) => {
-    const { accessToken, shop } = req.body;
-    
-    if (!accessToken || !shop) {
-        return res.status(400).json({ error: 'Missing accessToken or shop' });
-    }
-    
-    const apiBase = `https://${shop}/admin/api/2023-10`;
-    const headers = { 'X-Shopify-Access-Token': accessToken };
-    
-    try {
-        // Get themes
-        const themesResp = await axios.get(`${apiBase}/themes.json`, { headers });
-        const themes = themesResp.data.themes || [];
-        
-        console.log('All themes:', themes.map(t => ({ id: t.id, name: t.name, role: t.role })));
-        
-        const mainTheme = themes.find(t => t.role === 'main') || themes.find(t => t.role === 'published') || themes[0];
-        
-        if (!mainTheme) {
-            return res.json({ error: 'No theme found', themes });
-        }
-        
-        // Get assets for the theme
-        const assetsResp = await axios.get(`${apiBase}/themes/${mainTheme.id}/assets.json`, { headers });
-        const assets = assetsResp.data.assets || [];
-        
-        const imageAssets = assets.filter(a => a.key && a.key.match(/\.(png|jpe?g|gif|webp|svg|ico)$/i));
-        
-        // Sample some assets to see their structure
-        const assetSamples = imageAssets.slice(0, 10).map(a => ({
-            key: a.key,
-            public_url: a.public_url,
-            content_type: a.content_type,
-            size: a.size,
-            theme_store_id: a.theme_store_id
-        }));
-        
-        res.json({
-            theme: { id: mainTheme.id, name: mainTheme.name, role: mainTheme.role },
-            totalAssets: assets.length,
-            imageAssets: imageAssets.length,
-            samples: assetSamples,
-            shopUrl: shop
-        });
-        
-    } catch (error) {
-        console.error('Debug error:', error.message);
-        res.status(500).json({ error: error.message, details: error.response?.data });
-    }
-});
-
-// --- Optimization Calculation Endpoints ---
-
-// Calculate savings for all images
-app.post('/api/optimization/calculate', async (req, res) => {
-    const { images } = req.body;
-    
-    if (!images || !Array.isArray(images)) {
-        return res.status(400).json({ error: 'Missing or invalid images array' });
-    }
-    
-    // Limit the number of images to process to avoid 413 errors
-    const MAX_IMAGES = 100;
-    const imagesToProcess = images.slice(0, MAX_IMAGES);
-    
-    try {
-        console.log(`Calculating optimization savings for ${imagesToProcess.length} images (limited from ${images.length})`);
-        
-        // Process images in smaller chunks to avoid memory issues
-        const CHUNK_SIZE = 25;
-        const chunks = [];
-        
-        for (let i = 0; i < imagesToProcess.length; i += CHUNK_SIZE) {
-            chunks.push(imagesToProcess.slice(i, i + CHUNK_SIZE));
-        }
-        
-        let totalOptimizationResult = {
-            summary: {
-                totalImages: 0,
-                optimizableImages: 0,
-                totalSavings: 0,
-                totalSavingsPercent: 0,
-                compressionSavings: 0,
-                resizeSavings: 0,
-                resizableImages: 0,
-                formattedSavings: '0 MB'
-            },
-            images: []
-        };
-        
-        // Process each chunk
-        for (const chunk of chunks) {
-            const chunkResult = imageCalculator.calculateTotalSavings(chunk);
-            
-            // Merge results
-            totalOptimizationResult.summary.totalImages += chunkResult.summary.totalImages;
-            totalOptimizationResult.summary.optimizableImages += chunkResult.summary.optimizableImages;
-            totalOptimizationResult.summary.totalSavings += chunkResult.summary.totalSavings;
-            totalOptimizationResult.summary.compressionSavings += chunkResult.summary.compressionSavings;
-            totalOptimizationResult.summary.resizeSavings += chunkResult.summary.resizeSavings;
-            totalOptimizationResult.summary.resizableImages += chunkResult.summary.resizableImages;
-            totalOptimizationResult.images.push(...chunkResult.images);
-        }
-        
-        // Recalculate percentages and formatted strings
-        if (totalOptimizationResult.summary.totalImages > 0) {
-            totalOptimizationResult.summary.totalSavingsPercent = Math.round(
-                (totalOptimizationResult.summary.totalSavings / 
-                 totalOptimizationResult.images.reduce((sum, img) => sum + (img.originalSize || 0), 0)) * 100
-            );
-            
-            const totalSavingsMB = totalOptimizationResult.summary.totalSavings / (1024 * 1024);
-            totalOptimizationResult.summary.formattedSavings = `${totalSavingsMB.toFixed(2)} MB`;
-        }
-        
-        console.log(`Optimization calculation complete: ${totalOptimizationResult.summary.formattedSavings} potential savings`);
-        
-        res.json({
-            success: true,
-            optimization: totalOptimizationResult,
-            processed: imagesToProcess.length,
-            total: images.length,
-            limited: images.length > MAX_IMAGES
-        });
-        
-    } catch (error) {
-        console.error('Error calculating optimization savings:', error.message);
-        res.status(500).json({ error: 'Failed to calculate optimization savings', details: error.message });
-    }
-});
-
-// Get optimization settings
-app.get('/api/optimization/settings', (req, res) => {
-    try {
-        const settings = imageCalculator.getOptimizationSettings();
-        res.json({ success: true, settings });
-    } catch (error) {
-        console.error('Error getting optimization settings:', error.message);
-        res.status(500).json({ error: 'Failed to get optimization settings', details: error.message });
-    }
-});
-
-// --- Image Replacement Helper Functions ---
-
-// Step 1: Detect image type (product, collection, file, theme asset)
-function detectImageType(url, category) {
-    console.log(`Detecting image type for URL: ${url}, category: ${category}`);
-    
-    // Parse URL to extract information
-    const urlObj = new URL(url);
-    const pathname = urlObj.pathname;
-    
-    // Product images: /products/{product_id}/images/{image_id}
-    if (pathname.includes('/products/') && pathname.includes('/images/')) {
-        const productMatch = pathname.match(/\/products\/(\d+)/);
-        const imageMatch = pathname.match(/\/images\/(\d+)/);
-        return {
-            type: 'product',
-            productId: productMatch ? productMatch[1] : null,
-            imageId: imageMatch ? imageMatch[1] : null
-        };
-    }
-    
-    // Collection images: /collections/{collection_id}
-    if (pathname.includes('/collections/') || category === 'collections') {
-        const collectionMatch = pathname.match(/\/collections\/(.+?)\//);
-        return {
-            type: 'collection',
-            collectionHandle: collectionMatch ? collectionMatch[1] : null
-        };
-    }
-    
-    // Theme assets: /t/{theme_id}/assets/ or /assets/
-    if (pathname.includes('/t/') && pathname.includes('/assets/')) {
-        const themeMatch = pathname.match(/\/t\/(\d+)/);
-        const assetMatch = pathname.match(/\/assets\/(.+)$/);
-        return {
-            type: 'theme',
-            themeId: themeMatch ? themeMatch[1] : null,
-            assetKey: assetMatch ? `assets/${assetMatch[1]}` : null
-        };
-    }
-    
-    // Generic files: /files/
-    if (pathname.includes('/files/')) {
-        const fileMatch = pathname.match(/\/files\/(.+)$/);
-        return {
-            type: 'file',
-            fileName: fileMatch ? fileMatch[1] : null
-        };
-    }
-    
-    // Default to product if category suggests it
-    if (category === 'products') {
-        return { type: 'product', productId: null, imageId: null };
-    }
-    
-    // Default to theme if category suggests it
-    if (category === 'theme') {
-        return { type: 'theme', themeId: null, assetKey: null };
-    }
-    
-    // Fallback to file type
-    return { type: 'file', fileName: null };
-}
-
-// Step 2: Replace product image
-async function replaceProductImage(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase) {
-    console.log('Replacing product image...');
-    
-    try {
-        // If we have specific product/image IDs, use them
-        if (imageType.productId && imageType.imageId) {
-            console.log(`Updating product ${imageType.productId} image ${imageType.imageId}`);
-            
-            // Convert buffer to base64
-            const base64Image = imageBuffer.toString('base64');
-            const mimeType = 'image/jpeg'; // Default, could be detected
-            
-            // Update the existing product image
-            const updateResponse = await axios.put(
-                `${apiBase}/products/${imageType.productId}/images/${imageType.imageId}.json`,
-                {
-                    image: {
-                        attachment: base64Image,
-                        filename: `updated_${Date.now()}.jpg`
-                    }
-                },
-                { headers }
-            );
-            
-            return {
-                newUrl: updateResponse.data.image.src,
-                resourceId: updateResponse.data.image.id
-            };
-        } else {
-            // Need to find the product by searching for the image URL
-            const product = await findProductByImageUrl(originalUrl, headers, apiBase);
-            if (product) {
-                console.log(`Found product ${product.productId} with image ${product.imageId}`);
-                
-                const base64Image = imageBuffer.toString('base64');
-                const updateResponse = await axios.put(
-                    `${apiBase}/products/${product.productId}/images/${product.imageId}.json`,
-                    {
-                        image: {
-                            attachment: base64Image,
-                            filename: `updated_${Date.now()}.jpg`
-                        }
-                    },
-                    { headers }
-                );
-                
-                return {
-                    newUrl: updateResponse.data.image.src,
-                    resourceId: updateResponse.data.image.id
-                };
-            } else {
-                throw new Error('Could not find product for image URL');
-            }
-        }
-    } catch (error) {
-        console.error('Error replacing product image:', error.message);
-        throw error;
-    }
-}
-
-// Step 3: Replace collection image
-async function replaceCollectionImage(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase) {
-    console.log('Replacing collection image...');
-    
-    try {
-        // Find the collection by searching
-        const collection = await findCollectionByImageUrl(originalUrl, headers, apiBase);
-        if (!collection) {
-            throw new Error('Could not find collection for image URL');
-        }
-        
-        console.log(`Found collection ${collection.id} (${collection.type})`);
-        
-        // Convert buffer to base64
-        const base64Image = imageBuffer.toString('base64');
-        
-        // Update collection image
-        const endpoint = collection.type === 'custom' ? 'custom_collections' : 'smart_collections';
-        const updateResponse = await axios.put(
-            `${apiBase}/${endpoint}/${collection.id}.json`,
-            {
-                [collection.type === 'custom' ? 'custom_collection' : 'smart_collection']: {
-                    id: collection.id,
-                    image: {
-                        attachment: base64Image,
-                        filename: `collection_${Date.now()}.jpg`
-                    }
-                }
-            },
-            { headers }
-        );
-        
-        const updatedCollection = collection.type === 'custom' 
-            ? updateResponse.data.custom_collection 
-            : updateResponse.data.smart_collection;
-        
-        return {
-            newUrl: updatedCollection.image.src,
-            resourceId: updatedCollection.id
-        };
-    } catch (error) {
-        console.error('Error replacing collection image:', error.message);
-        throw error;
-    }
-}
-
-// Step 4: Replace theme asset
-async function replaceThemeAsset(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase) {
-    console.log('Replacing theme asset...');
-    
-    try {
-        // Get the main theme
-        const themesResponse = await axios.get(`${apiBase}/themes.json`, { headers });
-        const mainTheme = themesResponse.data.themes.find(t => t.role === 'main') || 
-                           themesResponse.data.themes.find(t => t.role === 'published');
-        
-        if (!mainTheme) {
-            throw new Error('No main theme found');
-        }
-        
-        // Determine asset key
-        let assetKey = imageType.assetKey;
-        if (!assetKey) {
-            // Extract from URL
-            const urlObj = new URL(originalUrl);
-            const pathname = urlObj.pathname;
-            const assetMatch = pathname.match(/\/assets\/(.+)$/);
-            if (assetMatch) {
-                assetKey = `assets/${assetMatch[1].split('?')[0]}`; // Remove query params
-            } else {
-                throw new Error('Could not determine asset key from URL');
-            }
-        }
-        
-        console.log(`Updating theme ${mainTheme.id} asset ${assetKey}`);
-        
-        // Convert buffer to base64
-        const base64Image = imageBuffer.toString('base64');
-        
-        // Update theme asset
-        const updateResponse = await axios.put(
-            `${apiBase}/themes/${mainTheme.id}/assets.json`,
-            {
-                asset: {
-                    key: assetKey,
-                    attachment: base64Image
-                }
-            },
-            { headers }
-        );
-        
-        return {
-            newUrl: updateResponse.data.asset.public_url || originalUrl,
-            resourceId: mainTheme.id
-        };
-    } catch (error) {
-        console.error('Error replacing theme asset:', error.message);
-        throw error;
-    }
-}
-
-// Step 5: Replace Shopify file
-async function replaceShopifyFile(shop, accessToken, originalUrl, imageBuffer, imageType, headers, apiBase) {
-    console.log('Replacing Shopify file...');
-    
-    try {
-        // For files, we need to create a new file since Shopify doesn't allow direct file replacement
-        // Convert buffer to base64
-        const base64Image = imageBuffer.toString('base64');
-        
-        // Generate a unique filename
-        const timestamp = Date.now();
-        const originalFileName = imageType.fileName || `replaced_${timestamp}.jpg`;
-        const newFileName = `replaced_${timestamp}_${originalFileName}`;
-        
-        // Create new file
-        const createResponse = await axios.post(
-            `${apiBase}/assets.json`,
-            {
-                asset: {
-                    key: `assets/${newFileName}`,
-                    attachment: base64Image
-                }
-            },
-            { headers }
-        );
-        
-        return {
-            newUrl: createResponse.data.asset.public_url,
-            resourceId: createResponse.data.asset.key
-        };
-    } catch (error) {
-        console.error('Error replacing Shopify file:', error.message);
-        throw error;
-    }
-}
-
-// Helper: Find product by image URL
-async function findProductByImageUrl(imageUrl, headers, apiBase) {
-    console.log('Searching for product by image URL...');
-    
-    try {
-        let page = 1;
-        const limit = 50;
-        
-        while (page <= 10) { // Limit search to prevent infinite loops
-            const response = await axios.get(
-                `${apiBase}/products.json?limit=${limit}&page=${page}&fields=id,images`,
-                { headers }
-            );
-            
-            const products = response.data.products || [];
-            if (products.length === 0) break;
-            
-            for (const product of products) {
-                if (product.images) {
-                    for (const image of product.images) {
-                        if (image.src === imageUrl) {
-                            return {
-                                productId: product.id,
-                                imageId: image.id
-                            };
-                        }
-                    }
-                }
-            }
-            
-            page++;
-        }
-        
-        return null;
-    } catch (error) {
-        console.error('Error finding product by image URL:', error.message);
-        return null;
-    }
-}
-
-// Helper: Find collection by image URL
-async function findCollectionByImageUrl(imageUrl, headers, apiBase) {
-    console.log('Searching for collection by image URL...');
-    
-    try {
-        // Search custom collections
-        const customResponse = await axios.get(
-            `${apiBase}/custom_collections.json?limit=250`,
-            { headers }
-        );
-        
-        const customCollections = customResponse.data.custom_collections || [];
-        for (const collection of customCollections) {
-            if (collection.image && collection.image.src === imageUrl) {
-                return {
-                    id: collection.id,
-                    type: 'custom'
-                };
-            }
-        }
-        
-        // Search smart collections
-        const smartResponse = await axios.get(
-            `${apiBase}/smart_collections.json?limit=250`,
-            { headers }
-        );
-        
-        const smartCollections = smartResponse.data.smart_collections || [];
-        for (const collection of smartCollections) {
-            if (collection.image && collection.image.src === imageUrl) {
-                return {
-                    id: collection.id,
-                    type: 'smart'
-                };
-            }
-        }
-        
-        return null;
-    } catch (error) {
-        console.error('Error finding collection by image URL:', error.message);
-        return null;
-    }
-}
