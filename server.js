@@ -24,7 +24,7 @@ if (!SHOPIFY_API_KEY || !SHOPIFY_API_SECRET) {
 }
 
 // Valid Shopify scopes for media management
-const SHOPIFY_SCOPES = 'read_products,write_products,read_themes,write_themes,read_content,write_content,read_pages,write_pages,read_files,write_files';
+const SHOPIFY_SCOPES = 'read_products,write_products,read_themes,write_themes,read_content,write_content,read_files,write_files';
 
 // Middleware
 app.use(cors());
@@ -813,7 +813,7 @@ app.post('/api/media', async (req, res) => {
         allImages = allImages.concat(pageImages);
         console.log(`Found ${pageImages.length} page images`);
     } catch (e) {
-        console.warn('[API Error] Pages:', e.response?.status === 403 ? 'Insufficient permissions - read_pages scope required' : e.message);
+        console.warn('[API Error] Pages:', e.response?.status === 403 ? 'Insufficient permissions - read_content scope required' : e.message);
         skipped.push('pages');
     }
     
