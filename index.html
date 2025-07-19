@@ -123,21 +123,45 @@
                 </div>
                 
                 <!-- Image Filters -->
-                <div id="image-filters" class="hidden" style="margin-bottom: 1em; display: flex; gap: 10px; flex-wrap: wrap;">
-                    <button onclick="filterImages('all')" class="btn btn-outline filter-btn active" data-filter="all">
-                        <i class="fas fa-images"></i> All Images (<span id="count-all">0</span>)
-                    </button>
-                    <button onclick="filterImages('theme')" class="btn btn-outline filter-btn" data-filter="theme">
-                        <i class="fas fa-palette"></i> Theme Images (<span id="count-theme">0</span>)
-                    </button>
-                    <button onclick="filterImages('products')" class="btn btn-outline filter-btn" data-filter="products">
-                        <i class="fas fa-box"></i> Product Images (<span id="count-products">0</span>)
-                    </button>
-                    <button onclick="filterImages('collections')" class="btn btn-outline filter-btn" data-filter="collections">
-                        <i class="fas fa-layer-group"></i> Collection Images (<span id="count-collections">0</span>)
-                    </button>
-                    <div id="file-type-filters" class="file-type-filters" style="display: flex; gap: 8px; flex-wrap: wrap; margin-left: 10px; padding-left: 10px; border-left: 1px solid #ddd;">
-                        <!-- File type filters will be dynamically added here after analysis -->
+                <div id="image-filters" class="hidden">
+                    <div class="filter-section">
+                        <h4><i class="fas fa-filter"></i> Filter by Type</h4>
+                        <div class="filter-group">
+                            <button onclick="filterImages('all')" class="filter-button active" data-filter="all">
+                                <i class="fas fa-images"></i> All Images (<span id="count-all">0</span>)
+                            </button>
+                            <button onclick="filterImages('theme')" class="filter-button" data-filter="theme">
+                                <i class="fas fa-palette"></i> Theme (<span id="count-theme">0</span>)
+                            </button>
+                            <button onclick="filterImages('products')" class="filter-button" data-filter="products">
+                                <i class="fas fa-box"></i> Products (<span id="count-products">0</span>)
+                            </button>
+                            <button onclick="filterImages('collections')" class="filter-button" data-filter="collections">
+                                <i class="fas fa-layer-group"></i> Collections (<span id="count-collections">0</span>)
+                            </button>
+                            <button onclick="filterImages('blogs')" class="filter-button" data-filter="blogs">
+                                <i class="fas fa-blog"></i> Blog Posts (<span id="count-blogs">0</span>)
+                            </button>
+                            <button onclick="filterImages('pages')" class="filter-button" data-filter="pages">
+                                <i class="fas fa-file-alt"></i> Pages (<span id="count-pages">0</span>)
+                            </button>
+                            <button onclick="filterImages('metafields')" class="filter-button" data-filter="metafields">
+                                <i class="fas fa-database"></i> Metafields (<span id="count-metafields">0</span>)
+                            </button>
+                            <button onclick="filterImages('files')" class="filter-button" data-filter="files">
+                                <i class="fas fa-folder"></i> Files (<span id="count-files">0</span>)
+                            </button>
+                            <button onclick="filterImages('metaobjects')" class="filter-button" data-filter="metaobjects">
+                                <i class="fas fa-cubes"></i> Metaobjects (<span id="count-metaobjects">0</span>)
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="filter-section">
+                        <h4><i class="fas fa-file-image"></i> Filter by Format</h4>
+                        <div id="file-type-filters" class="filter-group">
+                            <!-- File type filters will be dynamically added here after analysis -->
+                        </div>
                     </div>
                 </div>
                 
@@ -1118,12 +1142,75 @@
                 all: images.length,
                 theme: images.filter(img => img.category === 'theme').length,
                 products: images.filter(img => img.category === 'products').length,
-                collections: images.filter(img => img.category === 'collections').length
+                collections: images.filter(img => img.category === 'collections').length,
+                blogs: images.filter(img => img.category === 'blogs').length,
+                pages: images.filter(img => img.category === 'pages').length,
+                metafields: images.filter(img => img.category === 'metafields').length,
+                files: images.filter(img => img.category === 'files').length,
+                metaobjects: images.filter(img => img.category === 'metaobjects').length
             };
             
             Object.entries(counts).forEach(([filter, count]) => {
                 const countEl = document.getElementById(`count-${filter}`);
                 if (countEl) countEl.textContent = count;
+            });
+            
+            // Update file type filters
+            updateFileTypeFilters(images);
+        }
+        
+        // Create and update file type filters
+        function updateFileTypeFilters(images) {
+            const fileTypeContainer = document.getElementById('file-type-filters');
+            if (!fileTypeContainer) return;
+            
+            // Count file types and normalize JPEG/JPG
+            const fileTypeCounts = {};
+            images.forEach(img => {
+                if (img.type) {
+                    let type = img.type.toLowerCase();
+                    // Normalize JPEG/JPG to one format
+                    if (type === 'jpg') type = 'jpeg';
+                    
+                    fileTypeCounts[type] = (fileTypeCounts[type] || 0) + 1;
+                }
+            });
+            
+            // Clear existing file type filters
+            fileTypeContainer.innerHTML = '';
+            
+            // Add "All Formats" button
+            const allFormatsBtn = document.createElement('button');
+            allFormatsBtn.className = 'file-type-btn active';
+            allFormatsBtn.dataset.format = 'all';
+            allFormatsBtn.innerHTML = `<i class="fas fa-asterisk"></i> ALL (${images.length})`;
+            allFormatsBtn.onclick = () => filterByFileType('all');
+            fileTypeContainer.appendChild(allFormatsBtn);
+            
+            // Sort file types by count (descending)
+            const sortedTypes = Object.entries(fileTypeCounts)
+                .sort(([,a], [,b]) => b - a);
+            
+            // Add file type filter buttons
+            sortedTypes.forEach(([type, count]) => {
+                const btn = document.createElement('button');
+                btn.className = 'file-type-btn';
+                btn.dataset.format = type;
+                
+                // Get appropriate icon for file type
+                let icon = 'fas fa-image';
+                switch (type) {
+                    case 'jpeg': icon = 'fas fa-camera'; break;
+                    case 'png': icon = 'fas fa-layer-group'; break;
+                    case 'webp': icon = 'fas fa-compress-alt'; break;
+                    case 'gif': icon = 'fas fa-play-circle'; break;
+                    case 'svg': icon = 'fas fa-vector-square'; break;
+                    default: icon = 'fas fa-image'; break;
+                }
+                
+                btn.innerHTML = `<i class="${icon}"></i> ${type.toUpperCase()} (${count})`;
+                btn.onclick = () => filterByFileType(type);
+                fileTypeContainer.appendChild(btn);
             });
         }
         
@@ -1148,13 +1235,108 @@
                     filteredImages = images.filter(img => img.category === 'collections');
                     title = 'Collection Images';
                     break;
+                case 'blogs':
+                    filteredImages = images.filter(img => img.category === 'blogs');
+                    title = 'Blog Post Images';
+                    break;
+                case 'pages':
+                    filteredImages = images.filter(img => img.category === 'pages');
+                    title = 'Page Images';
+                    break;
+                case 'metafields':
+                    filteredImages = images.filter(img => img.category === 'metafields');
+                    title = 'Metafield Images';
+                    break;
+                case 'files':
+                    filteredImages = images.filter(img => img.category === 'files');
+                    title = 'Shopify Files';
+                    break;
+                case 'metaobjects':
+                    filteredImages = images.filter(img => img.category === 'metaobjects');
+                    title = 'Metaobject Images';
+                    break;
+                case 'all':
+                default:
+                    filteredImages = images;
+                    title = 'All Images';
+                    break;
             }
             
             displayImages(filteredImages, title);
             
             // Update active filter button
-            document.querySelectorAll('.filter-btn').forEach(btn => {
+            document.querySelectorAll('.filter-button').forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.filter === category);
+            });
+            
+            // Reset file type filter to "all"
+            document.querySelectorAll('.file-type-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.format === 'all');
+            });
+        }
+        
+        // Filter images by file type
+        function filterByFileType(fileType) {
+            if (!imageSession.load()) return;
+            
+            let images = imageSession.images;
+            
+            // Get currently active category filter
+            const activeCategoryBtn = document.querySelector('.filter-button.active');
+            const activeCategory = activeCategoryBtn ? activeCategoryBtn.dataset.filter : 'all';
+            
+            // First apply category filter
+            if (activeCategory !== 'all') {
+                switch (activeCategory) {
+                    case 'theme':
+                        images = images.filter(img => img.category === 'theme');
+                        break;
+                    case 'products':
+                        images = images.filter(img => img.category === 'products');
+                        break;
+                    case 'collections':
+                        images = images.filter(img => img.category === 'collections');
+                        break;
+                    case 'blogs':
+                        images = images.filter(img => img.category === 'blogs');
+                        break;
+                    case 'pages':
+                        images = images.filter(img => img.category === 'pages');
+                        break;
+                    case 'metafields':
+                        images = images.filter(img => img.category === 'metafields');
+                        break;
+                    case 'files':
+                        images = images.filter(img => img.category === 'files');
+                        break;
+                    case 'metaobjects':
+                        images = images.filter(img => img.category === 'metaobjects');
+                        break;
+                }
+            }
+            
+            // Then apply file type filter
+            if (fileType !== 'all') {
+                images = images.filter(img => {
+                    if (!img.type) return false;
+                    let type = img.type.toLowerCase();
+                    // Normalize JPEG/JPG to one format
+                    if (type === 'jpg') type = 'jpeg';
+                    return type === fileType;
+                });
+            }
+            
+            // Create title
+            const categoryName = activeCategory === 'all' ? 'All' : 
+                activeCategoryBtn ? activeCategoryBtn.textContent.split('(')[0].trim() : 'All';
+            const formatName = fileType === 'all' ? 'All Formats' : fileType.toUpperCase();
+            const title = `${categoryName} - ${formatName}`;
+            
+            displayImages(images, title);
+            
+            // Update active file type filter button
+            document.querySelectorAll('.file-type-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.format === fileType);
             });
         }
         
