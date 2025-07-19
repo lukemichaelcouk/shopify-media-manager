@@ -1466,12 +1466,6 @@ body {
     text-align: center;
 }
 
-.image-gallery h3::before {
-    content: "�";
-    font-size: 1.5rem;
-    filter: grayscale(0.3);
-}
-
 /* Loading states */
 .loading, .error {
     text-align: center;
