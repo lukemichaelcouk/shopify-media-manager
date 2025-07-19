@@ -98,7 +98,7 @@ app.post('/api/shopify/exchange-code', async (req, res) => {
             client_secret,
             code,
             grant_type: 'authorization_code',
-            redirect_uri: `${baseUrl}/auth/callback`
+            redirect_uri: 'https://app.wearespree.com/auth-callback.html'
         });
         
         const { access_token } = response.data;
@@ -1762,7 +1762,7 @@ app.get('/', (req, res) => {
         }
         
         const scopes = SHOPIFY_SCOPES;
-        const redirectUri = 'https://app.wearespree.com/auth/callback';
+        const redirectUri = 'https://app.wearespree.com/auth-callback.html';
         const state = Math.random().toString(36).substring(7);
         
         const authUrl = `https://${shop}/admin/oauth/authorize?` + 
@@ -1794,7 +1794,7 @@ app.get('/install', (req, res) => {
     }
     
     const scopes = SHOPIFY_SCOPES;
-    const redirectUri = 'https://app.wearespree.com/auth/callback';
+    const redirectUri = 'https://app.wearespree.com/auth-callback.html';
     const state = Math.random().toString(36).substring(7);
     
     const authUrl = `https://${shop}/admin/oauth/authorize?` + 
