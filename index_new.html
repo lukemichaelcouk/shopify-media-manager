@@ -209,8 +209,8 @@
             fetch('/api/config')
                 .then(response => response.json())
                 .then(config => {
-                    const scopes = 'read_products,write_products,read_themes,write_themes';
-                    const redirectUri = encodeURIComponent('https://app.wearespree.com/auth-callback.html');
+                    const scopes = 'read_products,write_products,read_themes,write_themes,read_content,write_content,read_files,write_files';
+                    const redirectUri = encodeURIComponent('https://app.wearespree.com/auth/callback');
                     const state = Math.random().toString(36).substring(7);
                     
                     const authUrl = `https://${shop}/admin/oauth/authorize?` +
