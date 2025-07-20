@@ -237,7 +237,7 @@ function formatFileSize(bytes) {
 }
 
 // --- Utility: Extract image URLs from HTML content ---
-function extractImageUrlsFromHtml(htmlContent) {
+function extractImageUrlsFromHtml(htmlContent, shop) {
     if (!htmlContent || typeof htmlContent !== 'string') return [];
     
     const imageRegex = /<img[^>]*src=["']([^"']+)["'][^>]*>/gi;
@@ -246,7 +246,7 @@ function extractImageUrlsFromHtml(htmlContent) {
     
     while ((match = imageRegex.exec(htmlContent)) !== null) {
         const url = match[1];
-        if (url && validateImageUrl(url)) {
+        if (url && validateImageUrl(url, shop)) {
             urls.push(url);
         }
     }
@@ -266,7 +266,7 @@ async function fetchMetafields(resourceType, resourceId, headers, apiBase) {
 }
 
 // --- Utility: Extract image URLs from metafields ---
-function extractImageUrlsFromMetafields(metafields) {
+function extractImageUrlsFromMetafields(metafields, shop) {
     const imageUrls = [];
     
     for (const metafield of metafields) {
@@ -274,7 +274,7 @@ function extractImageUrlsFromMetafields(metafields) {
         if (metafield.type === 'file_reference' && metafield.value) {
             try {
                 const fileData = JSON.parse(metafield.value);
-                if (fileData.url && validateImageUrl(fileData.url)) {
+                if (fileData.url && validateImageUrl(fileData.url, shop)) {
                     imageUrls.push({
                         url: fileData.url,
                         metafieldId: metafield.id,
@@ -286,7 +286,7 @@ function extractImageUrlsFromMetafields(metafields) {
                 }
             } catch (e) {
                 // Try direct URL if JSON parsing fails
-                if (validateImageUrl(metafield.value)) {
+                if (validateImageUrl(metafield.value, shop)) {
                     imageUrls.push({
                         url: metafield.value,
                         metafieldId: metafield.id,
@@ -299,7 +299,7 @@ function extractImageUrlsFromMetafields(metafields) {
             }
         }
         // Check for URL type metafields that might contain image URLs
-        else if (metafield.type === 'url' && metafield.value && validateImageUrl(metafield.value)) {
+        else if (metafield.type === 'url' && metafield.value && validateImageUrl(metafield.value, shop)) {
             imageUrls.push({
                 url: metafield.value,
                 metafieldId: metafield.id,
@@ -396,7 +396,7 @@ async function fetchShopifyFiles(shop, accessToken) {
             mimeType: edge.node.mimeType,
             createdAt: edge.node.createdAt,
             fileStatus: edge.node.fileStatus
-        })).filter(file => file.url && validateImageUrl(file.url));
+        })).filter(file => file.url && validateImageUrl(file.url, shop));
         
         console.log(`Total Shopify Files found: ${mappedFiles.length}`);
         return mappedFiles;
@@ -521,7 +521,7 @@ async function fetchMetaobjects(shop, accessToken) {
                             });
                         }
                         // Check for URL fields that might contain image URLs
-                        else if (field.type === 'single_line_text_field' && field.value && validateImageUrl(field.value)) {
+                        else if (field.type === 'single_line_text_field' && field.value && validateImageUrl(field.value, shop)) {
                             imageUrls.push({
                                 url: field.value,
                                 metaobjectId: metaobject.id,
@@ -572,15 +572,60 @@ async function getImageDimensions(url) {
 }
 
 // Helper function to validate and fix image URLs
-function validateImageUrl(url) {
+function validateImageUrl(url, shop) {
     if (!url || typeof url !== 'string') {
         return false;
     }
     
-    // Check if it's already a valid HTTP/HTTPS URL
+    // Check if it's a valid HTTP/HTTPS URL
     try {
         const parsed = new URL(url);
-        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return false;
+        }
+        
+        const hostname = parsed.hostname.toLowerCase();
+        
+        // Explicitly block known third-party domains that aren't Shopify
+        const blockedDomains = [
+            'shgcdn.com',       // Shogun
+            'getshopoven.com',  // ShopOven
+            'cloudinary.com',   // Cloudinary (unless used by Shopify)
+            'imgix.net',        // Imgix
+            'pagefly.io',       // PageFly
+            'gumlet.com',       // Gumlet
+            'ytimg.com',        // YouTube
+            'vimeocdn.com',     // Vimeo
+            'googleusercontent.com' // Google
+        ];
+        
+        // Check for blocked domains
+        for (const domain of blockedDomains) {
+            if (hostname === domain || hostname.endsWith('.' + domain)) {
+                return false;
+            }
+        }
+        
+        // Only allow Shopify CDN domains
+        const shopifyCdnDomains = [
+            'cdn.shopify.com',
+            'cdn.shopifycdn.net', 
+            'shopify-assets.s3.amazonaws.com',
+            'shopify-assets.s3-us-west-2.amazonaws.com',
+            'cdn.shopifycloud.com',
+            'images.shopifycdn.com',
+            'shopify.com',
+            'shopifycloud.com'
+        ];
+        
+        // Allow store's own domain
+        if (shop && (hostname.endsWith('.myshopify.com') || hostname === shop || hostname.includes(shop.replace('.myshopify.com', '')))) {
+            return true;
+        }
+        
+        return shopifyCdnDomains.some(domain => 
+            hostname === domain || hostname.endsWith('.' + domain)
+        );
     } catch (e) {
         return false;
     }
@@ -800,7 +845,7 @@ app.post('/api/media', async (req, res) => {
                 
                 for (const article of articles) {
                     if (article.content) {
-                        const imageUrls = extractImageUrlsFromHtml(article.content);
+                        const imageUrls = extractImageUrlsFromHtml(article.content, shop);
                         console.log(`Article ${article.title}: found ${imageUrls.length} images in content`);
                         for (const url of imageUrls) {
                             blogImageUrls.push({
@@ -839,7 +884,7 @@ app.post('/api/media', async (req, res) => {
             
             for (const page of pages) {
                 if (page.body_html) {
-                    const imageUrls = extractImageUrlsFromHtml(page.body_html);
+                    const imageUrls = extractImageUrlsFromHtml(page.body_html, shop);
                     for (const url of imageUrls) {
                         pageImageUrls.push({
                             url,
@@ -880,7 +925,7 @@ app.post('/api/media', async (req, res) => {
             try {
                 const metafields = await fetchMetafields('products', id, headers, apiBase);
                 console.log(`Product ${id}: found ${metafields.length} metafields`);
-                const imageUrls = extractImageUrlsFromMetafields(metafields);
+                const imageUrls = extractImageUrlsFromMetafields(metafields, shop);
                 console.log(`Product ${id}: extracted ${imageUrls.length} image URLs from metafields`);
                 metafieldImageUrls = metafieldImageUrls.concat(imageUrls);
             } catch (e) {
@@ -894,7 +939,7 @@ app.post('/api/media', async (req, res) => {
             try {
                 const metafields = await fetchMetafields('collections', collection.id, headers, apiBase);
                 console.log(`Collection ${collection.id}: found ${metafields.length} metafields`);
-                const imageUrls = extractImageUrlsFromMetafields(metafields);
+                const imageUrls = extractImageUrlsFromMetafields(metafields, shop);
                 console.log(`Collection ${collection.id}: extracted ${imageUrls.length} image URLs from metafields`);
                 metafieldImageUrls = metafieldImageUrls.concat(imageUrls);
             } catch (e) {
@@ -1175,7 +1220,7 @@ app.post('/api/media/fetch', async (req, res) => {
                 
                 for (const article of articles) {
                     if (article.content) {
-                        const imageUrls = extractImageUrlsFromHtml(article.content);
+                        const imageUrls = extractImageUrlsFromHtml(article.content, shop);
                         console.log(`Article ${article.title}: found ${imageUrls.length} images in content`);
                         for (const url of imageUrls) {
                             blogImageUrls.push({
@@ -1214,7 +1259,7 @@ app.post('/api/media/fetch', async (req, res) => {
             
             for (const page of pages) {
                 if (page.body_html) {
-                    const imageUrls = extractImageUrlsFromHtml(page.body_html);
+                    const imageUrls = extractImageUrlsFromHtml(page.body_html, shop);
                     for (const url of imageUrls) {
                         pageImageUrls.push({
                             url,
@@ -1255,7 +1300,7 @@ app.post('/api/media/fetch', async (req, res) => {
             try {
                 const metafields = await fetchMetafields('products', id, headers, apiBase);
                 console.log(`Product ${id}: found ${metafields.length} metafields`);
-                const imageUrls = extractImageUrlsFromMetafields(metafields);
+                const imageUrls = extractImageUrlsFromMetafields(metafields, shop);
                 console.log(`Product ${id}: extracted ${imageUrls.length} image URLs from metafields`);
                 metafieldImageUrls = metafieldImageUrls.concat(imageUrls);
             } catch (e) {
@@ -1269,7 +1314,7 @@ app.post('/api/media/fetch', async (req, res) => {
             try {
                 const metafields = await fetchMetafields('collections', collection.id, headers, apiBase);
                 console.log(`Collection ${collection.id}: found ${metafields.length} metafields`);
-                const imageUrls = extractImageUrlsFromMetafields(metafields);
+                const imageUrls = extractImageUrlsFromMetafields(metafields, shop);
                 console.log(`Collection ${collection.id}: extracted ${imageUrls.length} image URLs from metafields`);
                 metafieldImageUrls = metafieldImageUrls.concat(imageUrls);
             } catch (e) {
