@@ -1400,74 +1400,99 @@ body {
 
 /* File Format Filter Buttons */
 .file-type-btn {
-    background: var(--spree-light-gray);
+    background: white;
     border: 2px solid var(--spree-border);
-    color: var(--spree-text-secondary);
-    padding: 8px 14px;
-    border-radius: 20px;
-    font-size: 0.8rem;
-    font-weight: 600;
+    color: var(--spree-text-primary);
+    padding: 10px 16px;
+    border-radius: 24px;
+    font-size: 0.85rem;
+    font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.3s ease;
     font-family: 'Lexend', sans-serif;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    min-height: 36px;
+    min-height: 40px;
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(49, 42, 114, 0.1);
+}
+
+.file-type-btn:before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    transition: left 0.5s;
+}
+
+.file-type-btn:hover:before {
+    left: 100%;
 }
 
 .file-type-btn:hover {
-    background: var(--spree-info);
+    background: var(--spree-primary);
     color: white;
-    border-color: var(--spree-info);
-    transform: translateY(-1px);
-    box-shadow: 0 3px 8px rgba(0, 123, 255, 0.2);
+    border-color: var(--spree-primary);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(49, 42, 114, 0.25);
 }
 
 .file-type-btn.active {
-    background: var(--spree-info);
+    background: var(--spree-gradient-primary);
     color: white;
-    border-color: var(--spree-info);
-    box-shadow: 0 2px 6px rgba(0, 123, 255, 0.3);
+    border-color: var(--spree-primary);
+    box-shadow: 0 4px 12px rgba(49, 42, 114, 0.3);
+    transform: translateY(-1px);
 }
 
-/* Format-specific colors */
-.file-type-btn[data-format="jpeg"] {
-    background: #ff6b6b;
-    border-color: #ff6b6b;
-    color: white;
+.file-type-btn.active:hover {
+    background: var(--spree-gradient-secondary);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(49, 42, 114, 0.4);
 }
 
-.file-type-btn[data-format="png"] {
-    background: #4ecdc4;
-    border-color: #4ecdc4;
-    color: white;
+/* Format-specific colors for active state */
+.file-type-btn[data-format="jpeg"].active {
+    background: #ff6b6b !important;
+    border-color: #ff6b6b !important;
+    color: white !important;
 }
 
-.file-type-btn[data-format="webp"] {
-    background: #45b7d1;
-    border-color: #45b7d1;
-    color: white;
+.file-type-btn[data-format="png"].active {
+    background: #4ecdc4 !important;
+    border-color: #4ecdc4 !important;
+    color: white !important;
 }
 
-.file-type-btn[data-format="gif"] {
-    background: #f9ca24;
-    border-color: #f9ca24;
-    color: var(--spree-text-primary);
+.file-type-btn[data-format="webp"].active {
+    background: #45b7d1 !important;
+    border-color: #45b7d1 !important;
+    color: white !important;
 }
 
-.file-type-btn[data-format="svg"] {
-    background: #6c5ce7;
-    border-color: #6c5ce7;
-    color: white;
+.file-type-btn[data-format="gif"].active {
+    background: #f9ca24 !important;
+    border-color: #f9ca24 !important;
+    color: var(--spree-text-primary) !important;
 }
 
-.file-type-btn[data-format="other"] {
-    background: var(--spree-dark-gray);
-    border-color: var(--spree-dark-gray);
-    color: white;
+.file-type-btn[data-format="svg"].active {
+    background: #6c5ce7 !important;
+    border-color: #6c5ce7 !important;
+    color: white !important;
+}
+
+.file-type-btn[data-format="other"].active {
+    background: var(--spree-dark-gray) !important;
+    border-color: var(--spree-dark-gray) !important;
+    color: white !important;
 }
 
 /* Responsive Filter Design */
