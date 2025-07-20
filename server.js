@@ -24,7 +24,7 @@ if (!SHOPIFY_API_KEY || !SHOPIFY_API_SECRET) {
 }
 
 // Valid Shopify scopes for media management
-const SHOPIFY_SCOPES = 'read_products,write_products,read_themes,write_themes,read_content,write_content,read_pages,write_pages,read_files,write_files';
+const SHOPIFY_SCOPES = 'read_products,write_products,read_themes,write_themes,read_content,write_content,read_files,write_files';
 
 // Middleware
 app.use(cors());
@@ -323,8 +323,8 @@ async function fetchShopifyFiles(shop, accessToken) {
     };
     
     const query = `
-        query getMediaFiles($first: Int!) {
-            files(first: $first, query: "media_type:IMAGE") {
+        query getMediaFiles($first: Int!, $after: String) {
+            files(first: $first, after: $after, query: "media_type:IMAGE") {
                 edges {
                     node {
                         id
@@ -355,18 +355,39 @@ async function fetchShopifyFiles(shop, accessToken) {
     `;
     
     try {
-        const response = await axios.post(graphqlEndpoint, {
-            query,
-            variables: { first: 100 }
-        }, { headers });
+        let allFiles = [];
+        let hasNextPage = true;
+        let cursor = null;
         
-        if (response.data.errors) {
-            console.error('GraphQL errors:', response.data.errors);
-            return [];
+        while (hasNextPage) {
+            const variables = { first: 250 };
+            if (cursor) {
+                variables.after = cursor;
+            }
+            
+            const response = await axios.post(graphqlEndpoint, {
+                query,
+                variables
+            }, { headers });
+            
+            if (response.data.errors) {
+                console.error('GraphQL errors:', response.data.errors);
+                break;
+            }
+            
+            const data = response.data.data?.files;
+            if (!data) break;
+            
+            const files = data.edges || [];
+            allFiles.push(...files);
+            
+            hasNextPage = data.pageInfo?.hasNextPage || false;
+            cursor = data.pageInfo?.endCursor;
+            
+            console.log(`Fetched ${files.length} files (total: ${allFiles.length}), hasNextPage: ${hasNextPage}`);
         }
         
-        const files = response.data.data?.files?.edges || [];
-        return files.map(edge => ({
+        const mappedFiles = allFiles.map(edge => ({
             id: edge.node.id,
             url: edge.node.image?.url || edge.node.originalSource?.url,
             alt: edge.node.alt,
@@ -376,6 +397,9 @@ async function fetchShopifyFiles(shop, accessToken) {
             createdAt: edge.node.createdAt,
             fileStatus: edge.node.fileStatus
         })).filter(file => file.url && validateImageUrl(file.url));
+        
+        console.log(`Total Shopify Files found: ${mappedFiles.length}`);
+        return mappedFiles;
     } catch (error) {
         console.error('Error fetching Shopify Files:', error.message);
         return [];
@@ -414,7 +438,7 @@ async function fetchMetaobjects(shop, accessToken) {
     try {
         const definitionsResponse = await axios.post(graphqlEndpoint, {
             query: definitionsQuery,
-            variables: { first: 50 }
+            variables: { first: 250 }
         }, { headers });
         
         if (definitionsResponse.data.errors) {
@@ -469,7 +493,7 @@ async function fetchMetaobjects(shop, accessToken) {
             try {
                 const objectsResponse = await axios.post(graphqlEndpoint, {
                     query: objectsQuery,
-                    variables: { type: definition.type, first: 50 }
+                    variables: { type: definition.type, first: 250 }
                 }, { headers });
                 
                 if (objectsResponse.data.errors) {
@@ -642,7 +666,7 @@ app.post('/api/media', async (req, res) => {
             
             console.log(`Found ${themeImageUrls.length} theme image URLs`);
             const themeImages = themeImageUrls.map(url => createImageWithoutMetadata(url, 'theme'));
-            allImages = allImages.concat(themeImages);
+            allImages.push(...themeImages);
         }
     } catch (e) {
         console.warn('[API Error] Theme assets:', e.message);
@@ -685,7 +709,7 @@ app.post('/api/media', async (req, res) => {
         
         console.log(`Found ${productImageUrls.length} product images`);
         const productImages = productImageUrls.map(url => createImageWithoutMetadata(url, 'products'));
-        allImages = allImages.concat(productImages);
+        allImages.push(...productImages);
     } catch (e) {
         console.warn('[API Error] Product images:', e.message);
         skipped.push('products');
@@ -728,7 +752,7 @@ app.post('/api/media', async (req, res) => {
                 collectionType: c.handle ? 'custom' : 'smart'
             }));
         
-        allImages = allImages.concat(collectionImages);
+        allImages.push(...collectionImages);
         console.log(`Found ${collectionImages.length} collection images (custom+smart)`);
     } catch (e) {
         console.warn('[API Error] Collection images:', e.message);
@@ -740,16 +764,19 @@ app.post('/api/media', async (req, res) => {
         console.log('Fetching blog articles...');
         const blogsResp = await axios.get(`${apiBase}/blogs.json`, { headers });
         const blogs = blogsResp.data.blogs || [];
+        console.log(`Found ${blogs.length} blogs to process`);
         
         let blogImageUrls = [];
         for (const blog of blogs) {
             try {
                 const articlesResp = await axios.get(`${apiBase}/blogs/${blog.id}/articles.json`, { headers });
                 const articles = articlesResp.data.articles || [];
+                console.log(`Blog ${blog.title}: ${articles.length} articles`);
                 
                 for (const article of articles) {
                     if (article.content) {
                         const imageUrls = extractImageUrlsFromHtml(article.content);
+                        console.log(`Article ${article.title}: found ${imageUrls.length} images in content`);
                         for (const url of imageUrls) {
                             blogImageUrls.push({
                                 url,
@@ -768,7 +795,7 @@ app.post('/api/media', async (req, res) => {
         }
         
         const blogImages = blogImageUrls.map(data => createImageWithoutMetadata(data.url, 'blogs', data));
-        allImages = allImages.concat(blogImages);
+        allImages.push(...blogImages);
         console.log(`Found ${blogImages.length} blog article images`);
     } catch (e) {
         console.warn('[API Error] Blog articles:', e.response?.status === 403 ? 'Insufficient permissions - read_content scope required' : e.message);
@@ -810,7 +837,7 @@ app.post('/api/media', async (req, res) => {
         }
         
         const pageImages = pageImageUrls.map(data => createImageWithoutMetadata(data.url, 'pages', data));
-        allImages = allImages.concat(pageImages);
+        allImages.push(...pageImages);
         console.log(`Found ${pageImages.length} page images`);
     } catch (e) {
         console.warn('[API Error] Pages:', e.response?.status === 403 ? 'Insufficient permissions - read_pages scope required' : e.message);
@@ -823,29 +850,35 @@ app.post('/api/media', async (req, res) => {
         let metafieldImageUrls = [];
         
         // Fetch metafields for products
+        console.log(`Checking metafields for ${Math.min(50, productIds.length)} products...`);
         for (const id of productIds.slice(0, 50)) { // Limit to first 50 products to avoid timeout
             try {
                 const metafields = await fetchMetafields('products', id, headers, apiBase);
+                console.log(`Product ${id}: found ${metafields.length} metafields`);
                 const imageUrls = extractImageUrlsFromMetafields(metafields);
+                console.log(`Product ${id}: extracted ${imageUrls.length} image URLs from metafields`);
                 metafieldImageUrls = metafieldImageUrls.concat(imageUrls);
             } catch (e) {
-                // Skip this product
+                console.warn(`Failed to fetch metafields for product ${id}:`, e.message);
             }
         }
         
         // Fetch metafields for collections
+        console.log(`Checking metafields for ${Math.min(50, allCollections.length)} collections...`);
         for (const collection of allCollections.slice(0, 50)) { // Limit to first 50 collections
             try {
                 const metafields = await fetchMetafields('collections', collection.id, headers, apiBase);
+                console.log(`Collection ${collection.id}: found ${metafields.length} metafields`);
                 const imageUrls = extractImageUrlsFromMetafields(metafields);
+                console.log(`Collection ${collection.id}: extracted ${imageUrls.length} image URLs from metafields`);
                 metafieldImageUrls = metafieldImageUrls.concat(imageUrls);
             } catch (e) {
-                // Skip this collection
+                console.warn(`Failed to fetch metafields for collection ${collection.id}:`, e.message);
             }
         }
         
         const metafieldImages = metafieldImageUrls.map(data => createImageWithoutMetadata(data.url, 'metafields', data));
-        allImages = allImages.concat(metafieldImages);
+        allImages.push(...metafieldImages);
         console.log(`Found ${metafieldImages.length} metafield images`);
     } catch (e) {
         console.warn('[API Error] Metafields:', e.message);
@@ -864,7 +897,7 @@ app.post('/api/media', async (req, res) => {
             sourceType: 'shopify_file'
         }));
         
-        allImages = allImages.concat(fileImages);
+        allImages.push(...fileImages);
         console.log(`Found ${fileImages.length} Shopify File images`);
     } catch (e) {
         console.warn('[API Error] Shopify Files:', e.message);
@@ -877,7 +910,7 @@ app.post('/api/media', async (req, res) => {
         const metaobjectImageUrls = await fetchMetaobjects(shop, accessToken);
         const metaobjectImages = metaobjectImageUrls.map(data => createImageWithoutMetadata(data.url, 'metaobjects', data));
         
-        allImages = allImages.concat(metaobjectImages);
+        allImages.push(...metaobjectImages);
         console.log(`Found ${metaobjectImages.length} metaobject images`);
     } catch (e) {
         console.warn('[API Error] Metaobjects:', e.message);
@@ -902,22 +935,352 @@ app.post('/api/media', async (req, res) => {
 
 // --- /api/media/fetch: Alias for /api/media endpoint (for frontend compatibility) ---
 app.post('/api/media/fetch', async (req, res) => {
-    console.log('Media fetch API called, forwarding to main media logic');
+    console.log('Media fetch API called, executing same logic as /api/media');
     
-    // Just call the main media endpoint with the same request
-    const originalUrl = req.url;
-    req.url = '/api/media';
+    // Execute the same logic as the main /api/media endpoint
+    const { accessToken, shop } = req.body;
+    console.log('Media API called for shop:', shop, 'with token:', accessToken ? 'present' : 'missing');
     
-    // Create a response interceptor to ensure we return success: true
-    const originalJson = res.json;
-    res.json = function(data) {
-        if (data && !data.success) {
-            data.success = true;
+    if (!accessToken || !shop) {
+        console.log('Missing accessToken or shop in request body');
+        return res.status(400).json({ error: 'Missing accessToken or shop' });
+    }
+    
+    const apiBase = `https://${shop}/admin/api/2023-10`;
+    const headers = { 'X-Shopify-Access-Token': accessToken };
+    let allImages = [];
+    let skipped = [];
+    let productIds = [];
+    let allCollections = [];
+    let stats = {
+        totalFiles: 0,
+        categories: {
+            theme: 0,
+            products: 0,
+            collections: 0,
+            blogs: 0,
+            pages: 0,
+            metafields: 0,
+            files: 0,
+            metaobjects: 0
         }
-        return originalJson.call(this, data);
     };
     
-    return app._router.handle(req, res);
+    console.log('Starting to fetch media for shop:', shop);
+    
+    // Helper function to create image object without metadata
+    function createImageWithoutMetadata(url, category, additionalData = {}) {
+        stats.categories[category]++;
+        return {
+            url,
+            category,
+            size: 0,
+            sizeFormatted: 'Not checked',
+            isLarge: false,
+            width: 0,
+            height: 0,
+            ...additionalData
+        };
+    }
+    
+    // --- 1. Theme image assets ---
+    try {
+        console.log('Fetching themes...');
+        const themesResp = await axios.get(`${apiBase}/themes.json`, { headers });
+        console.log('Themes response:', themesResp.data.themes?.length, 'themes found');
+        
+        const mainTheme = Array.isArray(themesResp.data.themes) ? themesResp.data.themes.find(t => t.role === 'main') : null;
+        console.log('Main theme found:', mainTheme ? `ID ${mainTheme.id}, Name: ${mainTheme.name}` : 'No main theme');
+        
+        if (mainTheme) {
+            console.log(`Fetching assets for theme ${mainTheme.id}...`);
+            const assetsResp = await axios.get(`${apiBase}/themes/${mainTheme.id}/assets.json`, { headers });
+            const assets = Array.isArray(assetsResp.data.assets) ? assetsResp.data.assets : [];
+            console.log(`Found ${assets.length} total assets`);
+            
+            // More inclusive filtering for theme images
+            const themeImageUrls = assets
+                .filter(a => {
+                    const isImage = a.key && a.key.match(/\.(png|jpe?g|gif|webp|svg|ico)$/i);
+                    return isImage;
+                })
+                .map(a => {
+                    if (a.public_url) {
+                        return a.public_url;
+                    } else if (a.key) {
+                        return `https://${shop}/files/${a.key}`;
+                    }
+                    return null;
+                })
+                .filter(url => url !== null);
+            
+            console.log(`Found ${themeImageUrls.length} theme image URLs`);
+            const themeImages = themeImageUrls.map(url => createImageWithoutMetadata(url, 'theme'));
+            allImages.push(...themeImages);
+        }
+    } catch (e) {
+        console.warn('[API Error] Theme assets:', e.message);
+        skipped.push('theme');
+    }
+    
+    // --- 2. Product images ---
+    try {
+        let nextUrl = `${apiBase}/products.json?limit=250`;
+        while (nextUrl) {
+            const resp = await axios.get(nextUrl, { headers });
+            if (Array.isArray(resp.data.products)) {
+                productIds.push(...resp.data.products.map(p => p.id));
+                const link = resp.headers['link'];
+                if (link && link.includes('rel="next"')) {
+                    const match = link.match(/<([^>]+)>; rel="next"/);
+                    nextUrl = match ? match[1] : null;
+                } else {
+                    nextUrl = null;
+                }
+            } else {
+                nextUrl = null;
+            }
+        }
+        
+        console.log(`Found ${productIds.length} products, fetching images...`);
+        
+        let productImageUrls = [];
+        for (const id of productIds) {
+            try {
+                const imgResp = await axios.get(`${apiBase}/products/${id}/images.json`, { headers });
+                if (Array.isArray(imgResp.data.images)) {
+                    const imageUrls = imgResp.data.images.map(img => img.src).filter(Boolean);
+                    productImageUrls = productImageUrls.concat(imageUrls);
+                }
+            } catch (e) {
+                // skip this product
+            }
+        }
+        
+        console.log(`Found ${productImageUrls.length} product images`);
+        const productImages = productImageUrls.map(url => createImageWithoutMetadata(url, 'products'));
+        allImages.push(...productImages);
+    } catch (e) {
+        console.warn('[API Error] Product images:', e.message);
+        skipped.push('products');
+    }
+    
+    // --- 3. Collection images ---
+    try {
+        console.log('Fetching collection images...');
+        async function fetchAllCollections(endpoint) {
+            let collections = [];
+            let nextUrl = `${apiBase}/${endpoint}.json?fields=id,title,handle,image&limit=250`;
+            while (nextUrl) {
+                const resp = await axios.get(nextUrl, { headers });
+                const key = endpoint === 'custom_collections' ? 'custom_collections' : 'smart_collections';
+                if (Array.isArray(resp.data[key])) {
+                    collections.push(...resp.data[key]);
+                }
+                const link = resp.headers['link'];
+                if (link && link.includes('rel="next"')) {
+                    const match = link.match(/<([^>]+)>; rel="next"/);
+                    nextUrl = match ? match[1] : null;
+                } else {
+                    nextUrl = null;
+                }
+            }
+            return collections;
+        }
+        
+        const [customCollections, smartCollections] = await Promise.all([
+            fetchAllCollections('custom_collections'),
+            fetchAllCollections('smart_collections')
+        ]);
+        allCollections = [...customCollections, ...smartCollections];
+        
+        const collectionImages = allCollections
+            .filter(c => c.image && c.image.src)
+            .map(c => createImageWithoutMetadata(c.image.src, 'collections', {
+                collectionId: c.id,
+                collectionTitle: c.title,
+                collectionType: c.handle ? 'custom' : 'smart'
+            }));
+        
+        allImages.push(...collectionImages);
+        console.log(`Found ${collectionImages.length} collection images (custom+smart)`);
+    } catch (e) {
+        console.warn('[API Error] Collection images:', e.message);
+        skipped.push('collections');
+    }
+    
+    // --- 4. Blog article images ---
+    try {
+        console.log('Fetching blog articles...');
+        const blogsResp = await axios.get(`${apiBase}/blogs.json`, { headers });
+        const blogs = blogsResp.data.blogs || [];
+        console.log(`Found ${blogs.length} blogs to process`);
+        
+        let blogImageUrls = [];
+        for (const blog of blogs) {
+            try {
+                const articlesResp = await axios.get(`${apiBase}/blogs/${blog.id}/articles.json`, { headers });
+                const articles = articlesResp.data.articles || [];
+                console.log(`Blog ${blog.title}: ${articles.length} articles`);
+                
+                for (const article of articles) {
+                    if (article.content) {
+                        const imageUrls = extractImageUrlsFromHtml(article.content);
+                        console.log(`Article ${article.title}: found ${imageUrls.length} images in content`);
+                        for (const url of imageUrls) {
+                            blogImageUrls.push({
+                                url,
+                                blogId: blog.id,
+                                blogTitle: blog.title,
+                                articleId: article.id,
+                                articleTitle: article.title,
+                                sourceType: 'blog_article'
+                            });
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn(`Failed to fetch articles for blog ${blog.id}:`, e.message);
+            }
+        }
+        
+        const blogImages = blogImageUrls.map(data => createImageWithoutMetadata(data.url, 'blogs', data));
+        allImages.push(...blogImages);
+        console.log(`Found ${blogImages.length} blog article images`);
+    } catch (e) {
+        console.warn('[API Error] Blog articles:', e.response?.status === 403 ? 'Insufficient permissions - read_content scope required' : e.message);
+        skipped.push('blogs');
+    }
+    
+    // --- 5. Page images ---
+    try {
+        console.log('Fetching pages...');
+        let nextUrl = `${apiBase}/pages.json?limit=250`;
+        let pageImageUrls = [];
+        
+        while (nextUrl) {
+            const resp = await axios.get(nextUrl, { headers });
+            const pages = resp.data.pages || [];
+            
+            for (const page of pages) {
+                if (page.body_html) {
+                    const imageUrls = extractImageUrlsFromHtml(page.body_html);
+                    for (const url of imageUrls) {
+                        pageImageUrls.push({
+                            url,
+                            pageId: page.id,
+                            pageTitle: page.title,
+                            pageHandle: page.handle,
+                            sourceType: 'page'
+                        });
+                    }
+                }
+            }
+            
+            const link = resp.headers['link'];
+            if (link && link.includes('rel="next"')) {
+                const match = link.match(/<([^>]+)>; rel="next"/);
+                nextUrl = match ? match[1] : null;
+            } else {
+                nextUrl = null;
+            }
+        }
+        
+        const pageImages = pageImageUrls.map(data => createImageWithoutMetadata(data.url, 'pages', data));
+        allImages.push(...pageImages);
+        console.log(`Found ${pageImages.length} page images`);
+    } catch (e) {
+        console.warn('[API Error] Pages:', e.response?.status === 403 ? 'Insufficient permissions - read_pages scope required' : e.message);
+        skipped.push('pages');
+    }
+    
+    // --- 6. Metafield images ---
+    try {
+        console.log('Fetching metafield images...');
+        let metafieldImageUrls = [];
+        
+        // Fetch metafields for products
+        console.log(`Checking metafields for ${Math.min(50, productIds.length)} products...`);
+        for (const id of productIds.slice(0, 50)) { // Limit to first 50 products to avoid timeout
+            try {
+                const metafields = await fetchMetafields('products', id, headers, apiBase);
+                console.log(`Product ${id}: found ${metafields.length} metafields`);
+                const imageUrls = extractImageUrlsFromMetafields(metafields);
+                console.log(`Product ${id}: extracted ${imageUrls.length} image URLs from metafields`);
+                metafieldImageUrls = metafieldImageUrls.concat(imageUrls);
+            } catch (e) {
+                console.warn(`Failed to fetch metafields for product ${id}:`, e.message);
+            }
+        }
+        
+        // Fetch metafields for collections
+        console.log(`Checking metafields for ${Math.min(50, allCollections.length)} collections...`);
+        for (const collection of allCollections.slice(0, 50)) { // Limit to first 50 collections
+            try {
+                const metafields = await fetchMetafields('collections', collection.id, headers, apiBase);
+                console.log(`Collection ${collection.id}: found ${metafields.length} metafields`);
+                const imageUrls = extractImageUrlsFromMetafields(metafields);
+                console.log(`Collection ${collection.id}: extracted ${imageUrls.length} image URLs from metafields`);
+                metafieldImageUrls = metafieldImageUrls.concat(imageUrls);
+            } catch (e) {
+                console.warn(`Failed to fetch metafields for collection ${collection.id}:`, e.message);
+            }
+        }
+        
+        const metafieldImages = metafieldImageUrls.map(data => createImageWithoutMetadata(data.url, 'metafields', data));
+        allImages.push(...metafieldImages);
+        console.log(`Found ${metafieldImages.length} metafield images`);
+    } catch (e) {
+        console.warn('[API Error] Metafields:', e.message);
+        skipped.push('metafields');
+    }
+    
+    // --- 7. Shopify Files ---
+    try {
+        console.log('Fetching Shopify Files...');
+        const shopifyFiles = await fetchShopifyFiles(shop, accessToken);
+        const fileImages = shopifyFiles.map(file => createImageWithoutMetadata(file.url, 'files', {
+            fileId: file.id,
+            alt: file.alt,
+            mimeType: file.mimeType,
+            createdAt: file.createdAt,
+            sourceType: 'shopify_file'
+        }));
+        
+        allImages.push(...fileImages);
+        console.log(`Found ${fileImages.length} Shopify File images`);
+    } catch (e) {
+        console.warn('[API Error] Shopify Files:', e.message);
+        skipped.push('files');
+    }
+    
+    // --- 8. Metaobject images ---
+    try {
+        console.log('Fetching metaobject images...');
+        const metaobjectImageUrls = await fetchMetaobjects(shop, accessToken);
+        const metaobjectImages = metaobjectImageUrls.map(data => createImageWithoutMetadata(data.url, 'metaobjects', data));
+        
+        allImages.push(...metaobjectImages);
+        console.log(`Found ${metaobjectImages.length} metaobject images`);
+    } catch (e) {
+        console.warn('[API Error] Metaobjects:', e.message);
+        skipped.push('metaobjects');
+    }
+    
+    // Update final stats
+    stats.totalFiles = allImages.length;
+    
+    console.log('Media fetch completed.');
+    console.log(`Total images: ${allImages.length}`);
+    console.log('Skipped categories:', skipped);
+    console.log('Stats:', stats);
+    
+    res.json({ 
+        success: true,
+        images: allImages, 
+        skipped,
+        stats
+    });
 });
 
 // --- /api/media/analyze: Re-analyze images with metadata (size, dimensions, optimization analysis) ---
