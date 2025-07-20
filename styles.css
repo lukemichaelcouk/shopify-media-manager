@@ -1154,21 +1154,7 @@ body {
     overflow: auto;
 }
 
-/* File Type Filters */
-.file-type-filters {
-    display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-}
-
-.file-type-btn {
-    font-size: 0.8rem;
-    padding: 0.5rem 0.75rem;
-}
-
-.file-type-btn i {
-    margin-right: 0.25rem;
-}
+/* File Type Filters - Styles moved to main filter section below */
 
 /* Image List View */
 .image-list {

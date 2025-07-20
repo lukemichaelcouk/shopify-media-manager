@@ -621,6 +621,30 @@ app.post('/api/media', async (req, res) => {
     // Helper function to create image object without metadata
     function createImageWithoutMetadata(url, category, additionalData = {}) {
         stats.categories[category]++;
+        
+        // Infer file type from URL extension
+        const inferTypeFromUrl = (url) => {
+            const match = url.match(/\.([^.?]+)(?:\?|$)/);
+            if (match) {
+                const extension = match[1].toLowerCase();
+                const typeMap = {
+                    'jpg': 'JPEG',
+                    'jpeg': 'JPEG',
+                    'png': 'PNG',
+                    'gif': 'GIF',
+                    'webp': 'WebP',
+                    'svg': 'SVG',
+                    'bmp': 'BMP',
+                    'tiff': 'TIFF',
+                    'tif': 'TIFF',
+                    'ico': 'ICO',
+                    'avif': 'AVIF'
+                };
+                return typeMap[extension] || extension.toUpperCase();
+            }
+            return 'UNKNOWN';
+        };
+        
         return {
             url,
             category,
@@ -629,6 +653,7 @@ app.post('/api/media', async (req, res) => {
             isLarge: false,
             width: 0,
             height: 0,
+            type: inferTypeFromUrl(url),
             ...additionalData
         };
     }
@@ -971,6 +996,30 @@ app.post('/api/media/fetch', async (req, res) => {
     // Helper function to create image object without metadata
     function createImageWithoutMetadata(url, category, additionalData = {}) {
         stats.categories[category]++;
+        
+        // Infer file type from URL extension
+        const inferTypeFromUrl = (url) => {
+            const match = url.match(/\.([^.?]+)(?:\?|$)/);
+            if (match) {
+                const extension = match[1].toLowerCase();
+                const typeMap = {
+                    'jpg': 'JPEG',
+                    'jpeg': 'JPEG',
+                    'png': 'PNG',
+                    'gif': 'GIF',
+                    'webp': 'WebP',
+                    'svg': 'SVG',
+                    'bmp': 'BMP',
+                    'tiff': 'TIFF',
+                    'tif': 'TIFF',
+                    'ico': 'ICO',
+                    'avif': 'AVIF'
+                };
+                return typeMap[extension] || extension.toUpperCase();
+            }
+            return 'UNKNOWN';
+        };
+        
         return {
             url,
             category,
@@ -979,6 +1028,7 @@ app.post('/api/media/fetch', async (req, res) => {
             isLarge: false,
             width: 0,
             height: 0,
+            type: inferTypeFromUrl(url),
             ...additionalData
         };
     }
@@ -1354,7 +1404,7 @@ app.post('/api/media/analyze', async (req, res) => {
                     width: dimensions.width,
                     height: dimensions.height,
                     isLarge: isLarge,
-                    type: dimensions.type ? dimensions.type.toUpperCase() : inferTypeFromUrl(image.url),
+                    type: inferTypeFromUrl(image.url),
                     imageType: imageType,
                     aspectRatio: aspectRatio,
                     totalPixels: dimensions.width * dimensions.height

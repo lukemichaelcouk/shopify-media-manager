@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>SPREE - Shopify Media Manager v3-DEBUG</title>
+    <title>SPREE - Shopify Media Manager v3-DEBUG-FIXED</title>
     <meta name="description" content="Professional Shopify media management tool by SPREE agency. Download, optimize, and reupload your store's media files with ease.">
     <meta name="keywords" content="Shopify, media manager, image optimization, SPREE, agency, e-commerce">
     <meta name="author" content="SPREE Agency">
@@ -743,8 +743,8 @@
                     updateStats(data.images);
                     updateFilterCounts(data.images);
                     
-                    // Create file type filters based on analyzed images
-                    createFileTypeFilters(data.images);
+                    // Update file type filters based on analyzed images
+                    updateFileTypeFilters(data.images);
                     
                     const largeFiles = data.images.filter(img => img.isLarge).length;
                     if (statusEl) statusEl.textContent = `Analysis complete: ${data.images.length} images processed`;
@@ -896,35 +896,6 @@
                 return size;
             } catch (error) {
                 return 0;
-            }
-        }
-        
-        // Create file type filters based on analyzed images
-        function createFileTypeFilters(images) {
-            const fileTypes = {};
-            images.forEach(img => {
-                const type = img.type || 'UNKNOWN';
-                fileTypes[type] = (fileTypes[type] || 0) + 1;
-            });
-            
-            const filterContainer = document.getElementById('file-type-filters');
-            if (filterContainer) {
-                filterContainer.innerHTML = Object.entries(fileTypes)
-                    .sort(([,a], [,b]) => b - a)
-                    .map(([type, count]) => `
-                        <button class="filter-btn" data-type="${type}">
-                            ${type} (${count})
-                        </button>
-                    `).join('');
-                
-                // Add event listeners to filter buttons
-                filterContainer.querySelectorAll('.filter-btn').forEach(btn => {
-                    btn.addEventListener('click', () => {
-                        const type = btn.dataset.type;
-                        const filteredImages = images.filter(img => img.type === type);
-                        displayImages(filteredImages, `${type} Images`);
-                    });
-                });
             }
         }
         
