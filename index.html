@@ -225,6 +225,8 @@
             images: [],
             lastFetched: null,
             shop: null,
+            activeCategory: null,
+            activeFileType: null,
             
             save: function(images, shop) {
                 this.images = images;
@@ -1188,6 +1190,9 @@
         // Filter images by category
         function filterImages(category) {
             if (!imageSession.load()) return;
+            // Clear file type filter when type filter is activated
+            document.querySelectorAll('.file-type-btn.active').forEach(btn => btn.classList.remove('active'));
+            imageSession.activeFileType = null;
             
             const images = imageSession.images;
             let filteredImages = images;
@@ -1249,6 +1254,9 @@
         // Filter images by file type
         function filterByFileType(fileType) {
             if (!imageSession.load()) return;
+            // Clear type filter when file type filter is activated
+            document.querySelectorAll('.filter-button.active').forEach(btn => btn.classList.remove('active'));
+            imageSession.activeCategory = null;
             
             let images = imageSession.images;
             
